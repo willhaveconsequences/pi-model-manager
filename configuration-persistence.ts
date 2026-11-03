@@ -274,7 +274,9 @@ async function refreshRegistryAfterPersistence(
 		throw new Error(t("models.json/state.json 未完整保存：{error}", { error: formatUnknownError(error) }));
 	}
 	try {
-		await ctx.modelRegistry.refresh();
+		// [喵喵喵]: 这里只让 registry 重读 models.json；允许网络时会顺带刷新模型目录，
+		// 面板流程等的是外部请求，网络一慢整个 Pi 主循环就卡在命令上（再输入 /model-manager 毫无反应）。
+		await ctx.modelRegistry.refresh({ allowNetwork: false });
 	} catch (error) {
 		throw new Error(t("models.json/state.json 已写入，但当前会话 registry 重载失败：{error}。可执行 /reload 重试。", { error: formatUnknownError(error) }));
 	}
