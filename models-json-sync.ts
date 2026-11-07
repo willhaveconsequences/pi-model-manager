@@ -524,7 +524,6 @@ async function writeLockedSettingsFullReplace(
 	path: string,
 	patterns: readonly string[],
 ): Promise<boolean> {
-	const initialSnapshot = await readStableTextFileSnapshot(path);
 	const release = await settingsFileLock.lock(path, {
 		realpath: false,
 		retries: { retries: 10, factor: 1, minTimeout: 20, maxTimeout: 20 },

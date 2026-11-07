@@ -32,7 +32,7 @@ function isFocusableComponent(component: ScreenComponent): component is ScreenCo
 	return typeof (component as Partial<Focusable>).focused === "boolean";
 }
 
-function isPromiseLike<T>(value: ScreenComponent | Promise<ScreenComponent>): value is Promise<ScreenComponent> {
+function isPromiseLike(value: ScreenComponent | Promise<ScreenComponent>): value is Promise<ScreenComponent> {
 	return typeof (value as Promise<ScreenComponent>).then === "function";
 }
 

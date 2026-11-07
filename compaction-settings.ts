@@ -16,6 +16,7 @@ import { atomicWriteText } from "./atomic-write.ts";
 import { cloneJson, formatUnknownError, isObjectRecord, stringifyJson, stripJsonNoise } from "./common.ts";
 import { readStableTextFileSnapshot } from "./file-snapshot.ts";
 import { t } from "./i18n.ts";
+import type { HorizontalDirection } from "./tui/persistent-menu.ts";
 import type { CompactionReserveChoice } from "./types.ts";
 
 export const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384;
@@ -306,4 +307,56 @@ export async function moveModelCompactionOverrides(
 		}
 		return changed;
 	});
+}
+
+// ========== 预设档位与 token 解析（编辑器共用） ==========
+
+// [喵喵喵]: 压缩预留的固定档位。预留越大，自动压缩越早发生。
+export const COMPACTION_RESERVE_PRESETS: readonly number[] = [
+	16_384,
+	32_768,
+	65_536,
+	131_072,
+	200_000,
+];
+
+export function cycleNumericPreset(
+	current: number,
+	presets: readonly number[],
+	direction: HorizontalDirection,
+): number {
+	if (presets.length === 0) return current;
+	if (direction === "left") {
+		for (let i = presets.length - 1; i >= 0; i--) {
+			if (presets[i] < current) return presets[i];
+		}
+		return presets[0];
+	}
+	for (let i = 0; i < presets.length; i++) {
+		if (presets[i] > current) return presets[i];
+	}
+	return presets[presets.length - 1];
+}
+
+export function parseNonNegativeTokenCount(rawInput: string): number | undefined {
+	if (rawInput.trim() === "0") return 0;
+	const parsed = parsePositiveIntegerWithUnit(rawInput);
+	return parsed !== undefined && parsed > 0 ? parsed : undefined;
+}
+function parsePositiveIntegerWithUnit(rawInput: string): number | undefined {
+	const trimmed = rawInput.trim();
+	if (!trimmed) return undefined;
+
+	const match = /^([0-9]+(?:\.[0-9]+)?)\s*([kmKM])?$/i.exec(trimmed);
+	if (!match) return undefined;
+
+	const num = Number.parseFloat(match[1]!);
+	if (!Number.isFinite(num) || num <= 0) return undefined;
+
+	const unit = match[2]?.toLowerCase();
+	if (unit === "m") return Math.round(num * 1_000_000);
+	if (unit === "k") return Math.round(num * 1_000);
+
+	// 纯数字无单位时，若数值小于 1000（如输入 64、128、200），按习惯视作千倍处理
+	return num < 1000 ? Math.round(num * 1_000) : Math.round(num);
 }

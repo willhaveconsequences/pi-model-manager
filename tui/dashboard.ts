@@ -270,11 +270,6 @@ export function resolveOverrideMenuModel<TModel extends { id: string }>(
 	return chatModels.find((model) => model.id === rowId);
 }
 
-async function toggleBuiltinModelHidden(ctx: ExtensionCommandContext, providerId: string, modelId: string): Promise<void> {
-	// [喵喵喵]: 与可见性面板共用同一份 hidden 状态，不再各自读写 enabledModels。
-	await toggleScopedModelVisibility(ctx, providerId, modelId);
-}
-
 function formatOverrideModelLabel(
 	model: { id: string; name?: string; contextWindow?: number; maxTokens?: number },
 	overridden: boolean,
@@ -351,7 +346,7 @@ async function editNativeOverrideModel(
 	// [喵喵喵]: scoped 可见性同样 diff —— 编辑器内的「显示」行与 X 快捷键共用状态。
 	let scopedHiddenSet: Set<string>;
 	try {
-		scopedHiddenSet = await readScopedHiddenSet(ctx);
+		scopedHiddenSet = await readScopedHiddenSet();
 	} catch {
 		scopedHiddenSet = new Set();
 	}
@@ -480,7 +475,7 @@ async function showNativeOverrideMenu(
 				continue;
 			}
 			if (action.shortcut === "toggle-hidden") {
-				await toggleBuiltinModelHidden(ctx, providerId, rows[cursor.index]?.id ?? "");
+				await toggleScopedModelVisibility(ctx, providerId, rows[cursor.index]?.id ?? "").catch((error) => ctx.ui.notify(formatUnknownError(error), "error"));
 				continue;
 			}
 			if (action.shortcut === "edit-provider") {
@@ -645,7 +640,7 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 		}
 		let scopedHiddenSet: Set<string>;
 		try {
-			scopedHiddenSet = await readScopedHiddenSet(ctx);
+			scopedHiddenSet = await readScopedHiddenSet();
 		} catch {
 			scopedHiddenSet = new Set();
 		}

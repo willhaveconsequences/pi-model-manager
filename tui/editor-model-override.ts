@@ -6,7 +6,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { t } from "../i18n.ts";
 import type { CompactionReserveChoice, ModelOverrideDraft } from "../types.ts";
-import { describeVisibilityTag, readScopedHiddenSet } from "./scoped-model-visibility.ts";
 import { DEFAULT_COMPACTION_RESERVE_TOKENS, resolveAutoCompactionReserve, resolveCompactionReserveChoice } from "../compaction-settings.ts";
 import type { BuiltinChatModelBaseline } from "../state-document.ts";
 import { COMPACTION_RESERVE_PRESETS, cycleNumericPreset, parseNonNegativeTokenCount } from "./editor-model.ts";
@@ -144,14 +143,13 @@ async function editIntField(
 	else ctx.ui.notify(t("{label} 必须是正整数", { label }), "warning");
 }
 
-async function editReasoningField(ctx: ExtensionCommandContext, draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline): Promise<void> {
+async function editReasoningField(ctx: ExtensionCommandContext, draft: ModelOverrideDraft): Promise<void> {
 	const choice = await showOptionPicker(ctx, t("推理"), [
 		{ id: "on", label: t("开") },
 		{ id: "off", label: t("关") },
 	], draft.reasoning ? "on" : "off");
 	if (!choice) return;
 	draft.reasoning = choice.id === "on";
-	void pristine;
 }
 
 export type ModelOverrideEditOutcome =
@@ -221,7 +219,7 @@ export async function editModelOverride(
 			continue;
 		}
 		if (fieldId === "reasoning") {
-			await editReasoningField(ctx, draft, pristine);
+			await editReasoningField(ctx, draft);
 			continue;
 		}
 		if (fieldId === "compactionReserve") {

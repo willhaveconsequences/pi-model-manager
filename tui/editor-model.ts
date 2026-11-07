@@ -7,7 +7,7 @@
 //   - 视觉支持用开关式 select，保存时仍映射为 text / text,image
 
 import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_COMPACTION_RESERVE_TOKENS, resolveAutoCompactionReserve, resolveCompactionReserveChoice } from "../compaction-settings.ts";
+import { COMPACTION_RESERVE_PRESETS, DEFAULT_COMPACTION_RESERVE_TOKENS, cycleNumericPreset, parseNonNegativeTokenCount, resolveAutoCompactionReserve, resolveCompactionReserveChoice } from "../compaction-settings.ts";
 import { t } from "../i18n.ts";
 import { resolveProviderCustomHeaders } from "../presets/client-headers.ts";
 import type { AnthropicThinkingProtocol, BuiltInClientHeaderProfileId, CompactionReserveChoice, ModelDraft, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
@@ -72,14 +72,6 @@ export const MAX_TOKENS_PRESETS: readonly number[] = [
 	128_000,
 ];
 
-// [喵喵喵]: 压缩预留的固定档位。预留越大，自动压缩越早发生。
-export const COMPACTION_RESERVE_PRESETS: readonly number[] = [
-	16_384,
-	32_768,
-	65_536,
-	131_072,
-	200_000,
-];
 
 // 档位序列：全局（不写模型级覆盖）→ auto（按上下文窗口算）→ 固定 token。
 // auto 是档位而不是数值，所以改上下文窗口时预留天然跟着变，不需要额外重算。
@@ -97,23 +89,6 @@ function cycleCompactionReserve(draft: ModelDraft, direction: HorizontalDirectio
 	draft.compactionReserve = cycleNumericPreset(current as number, COMPACTION_RESERVE_PRESETS, direction);
 }
 
-export function cycleNumericPreset(
-	current: number,
-	presets: readonly number[],
-	direction: HorizontalDirection,
-): number {
-	if (presets.length === 0) return current;
-	if (direction === "left") {
-		for (let i = presets.length - 1; i >= 0; i--) {
-			if (presets[i] < current) return presets[i];
-		}
-		return presets[0];
-	}
-	for (let i = 0; i < presets.length; i++) {
-		if (presets[i] > current) return presets[i];
-	}
-	return presets[presets.length - 1];
-}
 
 export function parsePositiveIntegerWithUnit(rawInput: string): number | undefined {
 	const trimmed = rawInput.trim();
@@ -137,11 +112,6 @@ export function parsePositiveIntegerWithUnit(rawInput: string): number | undefin
 
 // [喵喵喵]: Pi 允许 reserveTokens = 0（上下文写满就压缩），所以这里不能直接复用
 // parsePositiveIntegerWithUnit 的 num > 0 限制。
-export function parseNonNegativeTokenCount(rawInput: string): number | undefined {
-	if (rawInput.trim() === "0") return 0;
-	const parsed = parsePositiveIntegerWithUnit(rawInput);
-	return parsed !== undefined && parsed > 0 ? parsed : undefined;
-}
 
 // 开关字段在两个方向上取反；档位字段按 direction 在选项间步进。
 function applyHorizontalToggle(draft: ModelDraft, fieldId: string, direction: HorizontalDirection): boolean {
@@ -479,3 +449,5 @@ export async function editModel(
 		await editField(ctx, draft, action.id, requestHeaderProfiles, clientHeaderCaptures, inheritedCompactionReserve);
 	}
 }
+
+export { COMPACTION_RESERVE_PRESETS, cycleNumericPreset, parseNonNegativeTokenCount } from "../compaction-settings.ts";

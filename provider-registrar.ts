@@ -2,6 +2,10 @@
 
 import { ModelRuntime, type ExtensionAPI, type ProviderConfig } from "@earendil-works/pi-coding-agent";
 import type { Provider } from "@earendil-works/pi-ai";
+
+type ProviderModelConfig = NonNullable<ProviderConfig["models"]>[number];
+/** 动态注册只构造 chat 型模型配置；union 里仅有 chat 分支声明 compat。 */
+type ProviderChatModelConfig = Extract<ProviderModelConfig, { type?: "chat" }>;
 import { isBuiltinProviderId } from "./builtin-model-catalog.ts";
 import { buildCodexClientHeaders } from "./presets/codex-client-headers.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
@@ -11,9 +15,8 @@ import { removeProviderLocalProxyRoutes } from "./local-proxy-service.ts";
 import { getClientHeadersForProfile, mergeModelRequestHeaders, resolveClientHeaderProfile, resolveProviderCustomHeaders } from "./presets/client-headers.ts";
 import { createProviderTransport } from "./provider-transport.ts";
 import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
-import type { ApiKind, BuiltInClientHeaderProfileId, ProviderApiId, StateDocument, StoredClientHeaderCapture, StoredModel, StoredProvider, StoredRequestHeaderProfile } from "./types.ts";
+import type { ProviderApiId, BuiltInClientHeaderProfileId, StateDocument, StoredClientHeaderCapture, StoredModel, StoredProvider, StoredRequestHeaderProfile } from "./types.ts";
 
-type ProviderModelConfig = NonNullable<ProviderConfig["models"]>[number];
 const REGISTERED_PROVIDER_CONFIGS = new Map<string, Provider>();
 const emptyCredentialStore = {
 	async read() { return undefined; },
@@ -92,11 +95,13 @@ function buildModelConfig(
 	model: StoredModel,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
-): ProviderModelConfig {
+): ProviderChatModelConfig {
+	// [喵喵喵]: 动态注册路径只构造 chat 配置；compat 字段在 union 类型里只有
+	// ProviderChatModelConfig/ProviderClassifierModelConfig 才声明，直接以 chat 类型承载。
 	return {
 		id: model.id,
 		name: model.name ?? model.id,
-		api: model.api as ProviderModelConfig["api"],
+		api: model.api as ProviderChatModelConfig["api"],
 		baseUrl: resolveModelRuntimeBaseUrl(provider, model),
 		reasoning: model.reasoning,
 		thinkingLevelMap: model.thinkingLevelMap,
@@ -105,7 +110,7 @@ function buildModelConfig(
 		contextWindow: model.contextWindow,
 		maxTokens: model.maxTokens,
 		headers: buildModelRequestHeaders(provider, model, requestHeaderProfiles, clientHeaderCaptures),
-		compat: mergeCompatSettings(provider.compat, model.compat) as ProviderModelConfig["compat"],
+		compat: mergeCompatSettings(provider.compat, model.compat),
 	};
 }
 

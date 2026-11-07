@@ -16,7 +16,7 @@ const RESPONSES_TERMINAL_EVENTS = new Set([
 	"error",
 ]);
 
-function findSseFrameBoundary(buffer: Uint8Array): number {
+function findSseFrameBoundary(buffer: Bytes): number {
 	for (let index = 0; index < buffer.length; index += 1) {
 		if (buffer[index] === 10 && buffer[index + 1] === 10) return index + 2;
 		if (buffer[index] === 13 && buffer[index + 1] === 13) return index + 2;
@@ -25,7 +25,7 @@ function findSseFrameBoundary(buffer: Uint8Array): number {
 	return -1;
 }
 
-function isResponsesTerminalFrame(frame: Uint8Array): boolean {
+function isResponsesTerminalFrame(frame: Bytes): boolean {
 	const text = new TextDecoder().decode(frame);
 	let eventType: string | undefined;
 	const dataLines: string[] = [];
@@ -44,7 +44,9 @@ function isResponsesTerminalFrame(frame: Uint8Array): boolean {
 	}
 }
 
-function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+type Bytes = Uint8Array<ArrayBuffer>;
+
+function appendBytes(left: Bytes, right: Bytes): Bytes {
 	const combined = new Uint8Array(left.length + right.length);
 	combined.set(left);
 	combined.set(right, left.length);
@@ -54,7 +56,7 @@ function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
 function wrapResponsesTerminalStream(response: Response): Response {
 	if (!response.body || !response.ok) return response;
 	const reader = response.body.getReader();
-	let buffer = new Uint8Array();
+	let buffer: Bytes = new Uint8Array();
 	let terminal = false;
 	const body = new ReadableStream<Uint8Array>({
 		async pull(controller) {
@@ -73,11 +75,11 @@ function wrapResponsesTerminalStream(response: Response): Response {
 				}
 				const next = await reader.read();
 				if (next.done) {
-					if (buffer.length > 0) controller.enqueue(buffer);
+					if (buffer.length > 0) controller.enqueue(buffer as Bytes);
 					controller.close();
 					return;
 				}
-				buffer = appendBytes(buffer, next.value);
+				buffer = appendBytes(buffer, next.value as Bytes);
 			}
 		},
 		cancel(reason) {

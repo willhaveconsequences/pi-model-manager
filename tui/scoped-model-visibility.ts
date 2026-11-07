@@ -5,13 +5,13 @@
 // enabledModels 由扩展按“注册表 − hidden”重算（未隐藏 provider 写 provider/*）。
 // 入口分布在各 provider 的模型菜单/编辑器中，不再有独立的全局面板。
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "../common.ts";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { t } from "../i18n.ts";
 import { persistScopedModelVisibility } from "../models-json-sync.ts";
 import { readState } from "../state-store.ts";
 
-export async function readScopedHiddenSet(ctx: ExtensionCommandContext): Promise<Set<string>> {
+export async function readScopedHiddenSet(): Promise<Set<string>> {
 	const document = await readState();
 	return new Set((document.scopedModelVisibility?.hiddenModelIds ?? []).map((id) => id.toLowerCase()));
 }
