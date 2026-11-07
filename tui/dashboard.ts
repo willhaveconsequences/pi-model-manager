@@ -391,8 +391,13 @@ async function showNativeOverrideMenu(
 			continue;
 		}
 		const selectedIndex = Number.parseInt(action.id, 10);
-		if (!Number.isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex >= chatModels.length) continue;
-		await editNativeOverrideModel(ctx, providerId, chatModels[selectedIndex]!);
+		// [喵喵喵]: 行 id 就是模型 ID；过滤/滚动窗口里都应按 id 反查，避免索引错位。
+		const selectedModel = chatModels.find((model) => model.id === action.id)
+			?? (Number.isFinite(selectedIndex) && selectedIndex >= 0 && selectedIndex < chatModels.length
+				? chatModels[selectedIndex]!
+				: undefined);
+		if (!selectedModel) continue;
+		await editNativeOverrideModel(ctx, providerId, selectedModel);
 	}
 }
 
