@@ -30,7 +30,7 @@ export function maskSecret(value: string | undefined): string {
 	if (getApiKeyEnvVarName(value) || value.startsWith("!")) return value;
 	return "********";
 }
-function formatContextWindow(contextWindow: number): string {
+export function formatContextWindowShorthand(contextWindow: number): string {
 	if (contextWindow >= 1_000_000) return `${(contextWindow / 1_000_000).toFixed(contextWindow % 1_000_000 === 0 ? 0 : 1)}M`;
 	if (contextWindow >= 1_000) return `${Math.round(contextWindow / 1_000)}K`;
 	return String(contextWindow);
@@ -68,11 +68,22 @@ function formatTableHeader(line: string): string {
 }
 
 export function formatApiShort(api: ProviderApiId): string {
-	if (api === "openai-responses") return "Responses";
-	if (api === "openai-completions") return "Chat";
-	if (api === "anthropic-messages") return "Claude";
-	if (api === "google-generative-ai") return "Gemini";
-	return api;
+	// [喵喵喵]: 固定宽度列只有 9 格，输出必须 ≤9 个显示列；
+	// pi 原生 KnownApi 全集在此给出短标签，未知协议回退原串由列宽截断。
+	const SHORT_API_LABELS: Record<string, string> = {
+		"openai-completions": "Chat",
+		"openai-responses": "Responses",
+		"anthropic-messages": "Claude",
+		"google-generative-ai": "Gemini",
+		"openai-codex-responses": "Codex",
+		"azure-openai-responses": "Azure",
+		"mistral-conversations": "Mistral",
+		"bedrock-converse-stream": "Bedrock",
+		"google-vertex": "Vertex",
+		"pi-messages": "Pi",
+	};
+	const label = SHORT_API_LABELS[api];
+	return typeof label === "string" ? label : api;
 }
 
 function getAuthKind(apiKey: string | undefined): string {
@@ -190,10 +201,11 @@ export function formatProviderConsoleRow(
 	options: ProviderTableOptions = {},
 ): string {
 	if (provider.nativeOverride) {
+		const overrideCount = Object.keys(provider.modelOverrides ?? {}).length;
 		return joinFixedColumns(getProviderConsoleColumns({
 			provider: getProviderDisplayLabel(providerId, provider),
 			api: formatApiShort(provider.api),
-			models: "—",
+			models: overrideCount > 0 ? String(overrideCount) : "—",
 			headers: t("内置覆写"),
 			proxy: getProviderProxyText(provider),
 			auth: getProviderAuthCell(provider),
@@ -372,8 +384,8 @@ function getModelListCells(model?: StoredModel): ModelListCells {
 			name: formatModelNameCell(model),
 			input: formatModelInputCell(model),
 			thinking: formatModelThinkingCell(model),
-			context: formatContextWindow(model.contextWindow),
-			output: formatContextWindow(model.maxTokens),
+			context: formatContextWindowShorthand(model.contextWindow),
+			output: formatContextWindowShorthand(model.maxTokens),
 			fast: formatOpenAIServiceTier(model.openAIServiceTier),
 		}
 		: {

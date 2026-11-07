@@ -25,6 +25,7 @@ import type {
 	CompatSettings,
 	OpenAIChatCompatibilityMode,
 	ProviderApiId,
+	ModelOverrideDraft,
 	ModelDraft,
 	ProviderDraft,
 	RequestHeaderProfileDraft,
@@ -653,6 +654,78 @@ export function validateNativeOverrideDraft(draft: ProviderDraft): string[] {
 	else if (!ID_PATTERN.test(id)) errors.push(t("接入 ID 只能包含字母、数字、点、下划线和连字符"));
 	if (draft.baseUrl.trim()) validateUrl(draft.baseUrl.trim(), "Base URL", errors);
 	return errors;
+}
+
+
+// ========== 内置模型级覆盖 ==========
+
+export interface BuiltinChatModelBaseline {
+	name?: string;
+	reasoning: boolean;
+	contextWindow: number | undefined;
+	maxTokens: number | undefined;
+}
+
+export function createModelOverrideDraft(
+	modelId: string,
+	pristine: BuiltinChatModelBaseline,
+	current: { name?: string; reasoning: boolean; contextWindow?: number; maxTokens?: number },
+): ModelOverrideDraft {
+	return {
+		providerId: "",
+		modelId,
+		// [喵喵喵]: 展示“跟随内置名称”，除非当前值来自之前的覆盖或用户填写。
+		modelName: current.name && current.name !== "默认" && current.name !== modelId ? current.name : "",
+		contextWindow: current.contextWindow ?? pristine.contextWindow ?? 0,
+		maxTokens: current.maxTokens ?? pristine.maxTokens ?? 0,
+		reasoning: current.reasoning,
+		selectedIndex: 0,
+	};
+}
+
+/** [喵喵喵]: 只把与内置默认不同的字段写进 modelOverrides —— 理论上这是一个差集，恢复就是把字段去掉。 */
+export function buildModelOverridePatch(
+	draft: ModelOverrideDraft,
+	pristine: BuiltinChatModelBaseline,
+): Record<string, unknown> {
+	const patch: Record<string, unknown> = {};
+	const name = draft.modelName.trim();
+	if (name && name !== (pristine.name ?? draft.modelId)) patch.name = name;
+	if (Number.isInteger(draft.contextWindow) && draft.contextWindow > 0
+		&& (pristine.contextWindow === undefined || draft.contextWindow !== pristine.contextWindow)) {
+		patch.contextWindow = draft.contextWindow;
+	}
+	if (Number.isInteger(draft.maxTokens) && draft.maxTokens > 0
+		&& (pristine.maxTokens === undefined || draft.maxTokens !== pristine.maxTokens)) {
+		patch.maxTokens = draft.maxTokens;
+	}
+	if (draft.reasoning !== pristine.reasoning) patch.reasoning = draft.reasoning;
+	return patch;
+}
+
+/** 把单个模型的覆盖合并进接入的 modelOverrides；空补丁视为“该字段全部回归内置”则摘除该模型。 */
+export function mergeModelOverrideIn(
+	target: Record<string, unknown> | undefined,
+	modelId: string,
+	patch: Record<string, unknown>,
+): Record<string, unknown> {
+	const next: Record<string, unknown> = target ? cloneJson(target) : {};
+	if (Object.keys(patch).length === 0) delete next[modelId];
+	else next[modelId] = patch;
+	return next;
+}
+
+/** 对覆写视图记录做定点修改；目标必须是接管中的内置接入。 */
+export function patchNativeOverrideInDocument(
+	document: StateDocument,
+	providerId: string,
+	mutate: (stored: StoredProvider) => void,
+): StateDocument {
+	const next: StateDocument = cloneJson(document);
+	const stored = next.providers[providerId];
+	if (!stored?.nativeOverride) throw new Error(t("内置接入覆写状态缺失：{providerId}", { providerId }));
+	mutate(stored);
+	return next;
 }
 
 export function buildNativeOverrideFromDraft(current: StoredProvider | undefined, draft: ProviderDraft): StoredProvider {

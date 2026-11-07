@@ -172,6 +172,18 @@ export interface RequestHeaderProfileDraft {
 	selectedIndex: number;
 }
 
+/** 内置模型级覆盖草稿：空值/与内置默认相同的字段不写入 modelOverrides。 */
+export interface ModelOverrideDraft {
+	providerId: string;
+	modelId: string;
+	/** 显示名；空串 = 跟随内置名称，不写入 name。 */
+	modelName: string;
+	contextWindow: number;
+	maxTokens: number;
+	reasoning: boolean;
+	selectedIndex: number;
+}
+
 // ========== 异步流程结果 ==========
 
 export type ModelListFetchOutcome =

@@ -13,6 +13,10 @@ process.env.PI_CODING_AGENT_DIR = agentDir;
 const { applyNativeOverrideInDoc, stripNativeOverrideInDoc, getProviderNativeOverrideFields } = await import("../models-json-manager.ts");
 const { buildNativeOverrideProviderPatch } = await import("../models-json-sync.ts");
 const {
+	createModelOverrideDraft,
+	buildModelOverridePatch,
+	mergeModelOverrideIn,
+	patchNativeOverrideInDocument,
 	createNativeOverrideProviderDraft,
 	createProviderDraftFromStored,
 	buildNativeOverrideFromDraft,
@@ -21,6 +25,7 @@ const {
 } = await import("../state-document.ts");
 const { buildStateDocumentFromModelsJson } = await import("../state-store.ts");
 import type { ModelsJsonDocument, ModelsJsonProviderEntry } from "../models-json-manager.ts";
+import type { BuiltinChatModelBaseline, ModelOverrideDraft } from "../state-document.ts";
 import type { MetadataDocument } from "../state-metadata-store.ts";
 import type { StoredProvider } from "../types.ts";
 
@@ -158,4 +163,90 @@ test("覆写 upsert 会登记 managedProviderIds 以便序列化", () => {
 	assert.deepEqual(state.managedProviderIds, ["anthropic"]);
 	const stored = state.providers.anthropic!;
 	assert.equal(stored.nativeOverride, true);
+});
+
+// ========== 内置模型级覆盖 ==========
+
+const MODEL_BASELINE: BuiltinChatModelBaseline = {
+	name: "GPT X",
+	reasoning: true,
+	contextWindow: 400_000,
+	maxTokens: 32_000,
+};
+
+function draftFrom(draft: Partial<ModelOverrideDraft>): ModelOverrideDraft {
+	const base = createModelOverrideDraft("gpt-x", MODEL_BASELINE, {
+		name: "GPT X",
+		reasoning: true,
+		contextWindow: 400_000,
+		maxTokens: 32_000,
+	});
+	return { ...base, ...draft };
+}
+
+test("模型覆盖 diff：与内置默认相同不写，改动字段精确写入", () => {
+	assert.deepEqual(buildModelOverridePatch(draftFrom({}), MODEL_BASELINE), {});
+	assert.deepEqual(
+		buildModelOverridePatch(draftFrom({ contextWindow: 1_000_000, reasoning: false }), MODEL_BASELINE),
+		{ contextWindow: 1_000_000, reasoning: false },
+	);
+	assert.deepEqual(
+		buildModelOverridePatch(draftFrom({ modelName: "我的 GPT X" }), MODEL_BASELINE),
+		{ name: "我的 GPT X" },
+	);
+	// 显示名清空（跟随内置）不写 name；无内置名称时改 ID 等价也不写
+	assert.deepEqual(buildModelOverridePatch(draftFrom({ modelName: "" }), MODEL_BASELINE), {});
+	assert.deepEqual(
+		buildModelOverridePatch(draftFrom({ modelName: "gpt-x" }), { ...MODEL_BASELINE, name: undefined }),
+		{},
+	);
+});
+
+test("modelOverrides 的合并/摘除与覆写节点写入", () => {
+	let doc = applyNativeOverrideInDoc(emptyDoc(), "openai-codex", {
+		baseUrl: "https://gateway.example.com",
+		modelOverrides: { "gpt-x": { contextWindow: 1_000_000 } },
+	});
+	const entry = doc.providers["openai-codex"]!;
+	assert.deepEqual((entry.modelOverrides as Record<string, unknown>)["gpt-x"], { contextWindow: 1_000_000 });
+	assert.deepEqual(getProviderNativeOverrideFields(entry), ["baseUrl", "modelOverrides"]);
+
+	// 空 modelOverrides 补丁 = 清除该字段
+	doc = applyNativeOverrideInDoc(doc, "openai-codex", { baseUrl: "https://gateway.example.com", modelOverrides: {} });
+	assert.equal(doc.providers["openai-codex"]!.modelOverrides, undefined);
+
+	// 取消覆写剥离 modelOverrides
+	doc = applyNativeOverrideInDoc(doc, "openai-codex", { modelOverrides: { "gpt-x": { reasoning: false } } });
+	doc = stripNativeOverrideInDoc(doc, "openai-codex");
+	assert.equal(doc.providers["openai-codex"], undefined);
+});
+
+test("覆写补丁透传 modelOverrides", () => {
+	const stored: StoredProvider = {
+		name: "openai-codex",
+		api: "openai-codex-responses",
+		baseUrl: "",
+		managed: true,
+		nativeOverride: true,
+		clientHeaderProfile: "recommended",
+		modelOverrides: { "gpt-x": { contextWindow: 500_000 } },
+		models: [],
+	};
+	const patch = buildNativeOverrideProviderPatch("openai-codex", stored);
+	assert.deepEqual(patch.modelOverrides, { "gpt-x": { contextWindow: 500_000 } });
+	assert.equal("baseUrl" in patch, false);
+});
+
+test("patchNativeOverrideInDocument 只改覆写记录", () => {
+	const state = upsertProviderInDocument(
+		{ version: 2, providers: {}, managedProviderIds: [], requestHeaderProfiles: {}, clientHeaderCaptures: {} },
+		undefined,
+		createNativeOverrideProviderDraft("openai-codex", "openai-codex-responses"),
+	);
+	const next = patchNativeOverrideInDocument(state, "openai-codex", (record) => {
+		record.modelOverrides = mergeModelOverrideIn(record.modelOverrides, "gpt-x", { maxTokens: 64_000 });
+	});
+	const record = next.providers["openai-codex"]!;
+	assert.deepEqual((record.modelOverrides as Record<string, unknown>)["gpt-x"], { maxTokens: 64_000 });
+	assert.equal(next === state, false);
 });

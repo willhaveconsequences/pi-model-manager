@@ -180,6 +180,10 @@ export function buildNativeOverrideProviderPatch(
 	const apiKey = provider.apiKey?.trim();
 	if (apiKey) patch.apiKey = apiKey;
 	if (provider.authHeader === true) patch.authHeader = true;
+	const modelOverrides = provider.modelOverrides;
+	if (modelOverrides !== undefined && Object.keys(modelOverrides).length > 0) {
+		patch.modelOverrides = cloneJson(modelOverrides);
+	}
 	return patch;
 }
 

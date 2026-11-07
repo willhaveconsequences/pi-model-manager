@@ -89,6 +89,8 @@ export interface NativeOverrideProviderPatch {
 	baseUrl?: string;
 	apiKey?: string;
 	authHeader?: boolean;
+	/** 内置模型覆盖表（键 = 模型 ID；非空对象才写入，空/缺失则清除）。 */
+	modelOverrides?: Record<string, unknown>;
 }
 
 /**
@@ -102,7 +104,7 @@ export function getProviderNativeOverrideFields(entry: ModelsJsonProviderEntry):
 	return Array.isArray(fields) ? fields.filter((field): field is string => typeof field === "string") : [];
 }
 
-const NATIVE_OVERRIDE_FIELD_NAMES = ["name", "baseUrl", "apiKey", "authHeader"] as const;
+const NATIVE_OVERRIDE_FIELD_NAMES = ["name", "baseUrl", "apiKey", "authHeader", "modelOverrides"] as const;
 
 /** 把覆写字段写入 models.json 节点：每个字段非空则写、空则清除，同时记录当前覆写的字段清单。 */
 export function applyNativeOverrideInDoc(
@@ -135,6 +137,11 @@ export function applyNativeOverrideInDoc(
 		existing.authHeader = true;
 		written.push("authHeader");
 	} else delete existing.authHeader;
+	const modelOverrides = patch.modelOverrides;
+	if (modelOverrides !== undefined && Object.keys(modelOverrides).length > 0) {
+		existing.modelOverrides = cloneJson(modelOverrides);
+		written.push("modelOverrides");
+	} else delete existing.modelOverrides;
 	next.providers[providerId] = {
 		...existing,
 		[PLUGIN_PROVIDER_METADATA_KEY]: { ...marker, nativeOverride: true, fields: written },

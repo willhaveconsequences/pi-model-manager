@@ -206,6 +206,7 @@ function buildNativeOverrideProviderFromModelsJson(
 	if (entry.apiKey) provider.apiKey = entry.apiKey;
 	if (entry.authHeader !== undefined) provider.authHeader = entry.authHeader;
 	if (entry.headers !== undefined) provider.headers = cloneJson(entry.headers);
+	if (entry.modelOverrides !== undefined) provider.modelOverrides = cloneJson(entry.modelOverrides);
 	return provider;
 }
 

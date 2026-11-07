@@ -24,6 +24,7 @@ import {
 import {
 	createModelDraftForStoredProvider,
 	createModelDraftFromStoredModel,
+	createModelOverrideDraft,
 	createNativeOverrideProviderDraft,
 	createProviderDraft,
 	createProviderDraftFromStored,
@@ -31,14 +32,19 @@ import {
 	getProviderChangeWarnings,
 	getProviderDisplayName,
 	upsertProviderInDocument,
+	buildModelOverridePatch,
+	mergeModelOverrideIn,
+	patchNativeOverrideInDocument,
 	validateModelDraft,
 	validateNativeOverrideDraft,
 	validateProviderDraft,
 } from "../state-document.ts";
 import { readState } from "../state-store.ts";
-import { getBuiltinProviderDefaults, getBuiltinProviderIds, getBuiltinProviderName, getBuiltinProviderRawDefaults } from "../builtin-model-catalog.ts";
+import { persistNativeOverrideConfiguration } from "../configuration-persistence.ts";
+import { getBuiltinChatModelDefaults, getBuiltinProviderDefaults, getBuiltinProviderIds, getBuiltinProviderName, getBuiltinProviderRawDefaults } from "../builtin-model-catalog.ts";
 import type { ModelDraft, StateDocument, StoredModel, StoredProvider } from "../types.ts";
 import { editModel } from "./editor-model.ts";
+import { editModelOverride } from "./editor-model-override.ts";
 import { editProvider } from "./editor-provider.ts";
 import { showOptionPicker, showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
 import { runScreenFlow } from "./screen-host.ts";
@@ -49,6 +55,7 @@ import {
 	formatProviderConsoleRow,
 	formatProviderDetailLines,
 	formatProviderEndpointLine,
+	formatContextWindowShorthand,
 	formatProviderSummaryLine,
 	getModelColumnWidths,
 	getProviderDisplayLabel,
@@ -252,6 +259,142 @@ async function deleteModel(pi: ExtensionAPI, ctx: ExtensionCommandContext, provi
 }
 
 // ========== 内置接入覆写流程 ==========
+
+function formatOverrideModelLabel(
+	model: { id: string; name?: string; contextWindow?: number; maxTokens?: number },
+	overridden: boolean,
+): string {
+	const context = typeof model.contextWindow === "number"
+		? formatContextWindowShorthand(model.contextWindow)
+		: t("未知");
+	const maxOutput = typeof model.maxTokens === "number"
+		? formatContextWindowShorthand(model.maxTokens)
+		: t("未知");
+	const name = model.name && model.name !== model.id ? ` · ${model.name}` : "";
+	const tag = overridden ? ` · ${t("已覆盖")}` : "";
+	return `${model.id}${name} · ${context} / ${maxOutput}${tag}`;
+}
+
+async function saveNativeOverrideModelOverride(
+	ctx: ExtensionCommandContext,
+	providerId: string,
+	modelId: string,
+	patch: Record<string, unknown>,
+): Promise<boolean> {
+	try {
+		await persistNativeOverrideConfiguration(ctx, (latest) => ({
+			document: patchNativeOverrideInDocument(latest, providerId, (stored) => {
+				stored.modelOverrides = mergeModelOverrideIn(stored.modelOverrides, modelId, patch);
+			}),
+			changedProviderIds: [providerId],
+			removedProviderIds: [],
+			mergeProviderIds: [providerId],
+		}));
+		const fullId = getModelFullId(providerId, modelId);
+		ctx.ui.notify(
+			Object.keys(patch).length === 0
+				? t("已移除该模型的覆盖 {fullId}", { fullId })
+				: t("已保存模型覆盖 {fullId}", { fullId }),
+			"info",
+		);
+		return true;
+	} catch (error) {
+		ctx.ui.notify(t("保存失败：{error}", { error: formatUnknownError(error) }), "error");
+		return false;
+	}
+}
+
+async function editNativeOverrideModel(
+	ctx: ExtensionCommandContext,
+	providerId: string,
+	model: { id: string; name?: string; reasoning: boolean; contextWindow?: number; maxTokens?: number },
+): Promise<boolean> {
+	const pristine = await getBuiltinChatModelDefaults(providerId, model.id);
+	if (!pristine) {
+		ctx.ui.notify(t("内置目录中找不到该模型的默认值，无法计算覆盖差异：{fullId}", { fullId: getModelFullId(providerId, model.id) }), "warning");
+		return false;
+	}
+	const draft = createModelOverrideDraft(model.id, pristine, model);
+	draft.providerId = providerId;
+	// [喵喵喵]: diff 为空 => 该模型的覆盖会被摘除；保存失败保留草稿继续编辑。
+	while (true) {
+		const outcome = await editModelOverride(ctx, draft, pristine, t("模型覆盖 {providerId}/{modelId}", { providerId, modelId: model.id }));
+		if (outcome.action !== "save") return false;
+		const patch = buildModelOverridePatch(outcome.draft, pristine);
+		if (await saveNativeOverrideModelOverride(ctx, providerId, model.id, patch)) return true;
+	}
+}
+
+async function showNativeOverrideMenu(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	providerId: string,
+): Promise<boolean> {
+	const cursor: MenuCursor = { index: 0 };
+	type OverrideMenuShortcut = "edit-provider" | "clear-override";
+	while (true) {
+		const state = await readState();
+		const provider = state.providers[providerId];
+		if (!provider?.nativeOverride) {
+			ctx.ui.notify(t("接入配置已不存在：{providerId}", { providerId }), "warning");
+			return true;
+		}
+		const overridden = new Set(Object.keys(provider.modelOverrides ?? {}));
+		const chatModels = [...(ctx.modelRegistry.getModelsOfType("chat", providerId) ?? [])]
+			.sort((a, b) => a.id.localeCompare(b.id));
+		const rows = chatModels.map((model) => ({
+			id: model.id,
+			label: formatOverrideModelLabel(model, overridden.has(model.id)),
+			searchText: `${model.id} ${model.name ?? ""}`,
+		}));
+		const action = await showPersistentShortcutMenu<OverrideMenuShortcut>(
+			ctx,
+			`/model-manager / ${getProviderDisplayName(providerId, provider)}`,
+			"",
+			rows,
+			cursor,
+			[
+				{ input: "e", shortcut: "edit-provider" },
+				{ input: "r", shortcut: "clear-override" },
+			],
+			{
+				summaryLines: [
+					t("{count} 项模型覆盖 · 模型清单来自 pi 当前注册表", { count: overridden.size }),
+					t("Enter 修改单个模型的覆盖；r 恢复该模型为内置默认；e 编辑接入级覆写"),
+					formatProviderEndpointLine(provider),
+				],
+				hints: [
+					{ key: "↑↓", label: t("选择") },
+					{ key: "Enter", label: t("模型覆盖") },
+					{ key: "R", label: t("恢复默认") },
+					{ key: "E", label: t("编辑接入") },
+					{ key: "Esc", label: t("返回") },
+				],
+				emptyLabel: t("当前 pi 会话里该内置接入没有注册任何模型"),
+			},
+		);
+		if (action.type === "cancel") return false;
+		if (action.type === "shortcut") {
+			if (action.shortcut === "clear-override") {
+				const selectedId = rows[cursor.index]?.id;
+				if (!selectedId || !overridden.has(selectedId)) {
+					ctx.ui.notify(t("该模型没有可直接恢复的覆盖。"), "info");
+					continue;
+				}
+				await saveNativeOverrideModelOverride(ctx, providerId, selectedId, {});
+				continue;
+			}
+			if (action.shortcut === "edit-provider") {
+				await editOverrideStoredProvider(pi, ctx, providerId, provider);
+				continue;
+			}
+			continue;
+		}
+		const selectedIndex = Number.parseInt(action.id, 10);
+		if (!Number.isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex >= chatModels.length) continue;
+		await editNativeOverrideModel(ctx, providerId, chatModels[selectedIndex]!);
+	}
+}
 
 async function editBuiltInOverride(
 	pi: ExtensionAPI,
@@ -623,7 +766,7 @@ async function runDashboardLoop(
 		}
 		// 内置覆写没有模型菜单，直接进入覆写编辑器。
 		if (provider.nativeOverride) {
-			await editOverrideStoredProvider(pi, ctx, row.providerId, provider);
+			await showNativeOverrideMenu(pi, ctx, row.providerId);
 			continue;
 		}
 		await showProviderMenu(pi, ctx, row.providerId);

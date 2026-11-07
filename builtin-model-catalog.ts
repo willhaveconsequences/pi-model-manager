@@ -16,6 +16,11 @@ interface BuiltinCatalogModel {
 	provider: string;
 	api: string;
 	baseUrl: string;
+	id?: string;
+	name?: string;
+	reasoning?: boolean;
+	contextWindow?: number;
+	maxTokens?: number;
 }
 
 interface BuiltinCatalog {
@@ -64,6 +69,11 @@ function getBuiltinCatalog(): Promise<BuiltinCatalog> {
 			provider: String(model.provider),
 			api: String(model.api),
 			baseUrl: model.baseUrl,
+			id: typeof model.id === "string" ? model.id : undefined,
+			name: typeof model.name === "string" ? model.name : undefined,
+			reasoning: typeof model.reasoning === "boolean" ? model.reasoning : undefined,
+			contextWindow: typeof model.contextWindow === "number" && model.contextWindow > 0 ? model.contextWindow : undefined,
+			maxTokens: typeof model.maxTokens === "number" && model.maxTokens > 0 ? model.maxTokens : undefined,
 		})),
 		// [喵喵喵]: 聊天目录不包含仅提供生图或分类器的接入；保护 ID 必须取完整接入目录。
 		providerIds: new Set(runtime.getProviders().map((provider) => provider.id)),
@@ -102,6 +112,31 @@ export async function getBuiltinProviderDefaults(
 	return {
 		api: asSupportedApiKind(firstModel.api),
 		baseUrl: firstModel.baseUrl,
+	};
+}
+
+/** [喵喵喵]: 覆写视图需要携带 pi 原生接入的真实协议（codex-responses 等扩展不干预的 api 也允许覆写凭据/地址）。 */
+export interface BuiltinChatModelDefaults {
+	name?: string;
+	reasoning: boolean;
+	contextWindow: number | undefined;
+	maxTokens: number | undefined;
+}
+
+/** 内置模型未受任何覆盖时的默认值；模型级覆写仅写入与该值不同的字段。 */
+export async function getBuiltinChatModelDefaults(
+	providerId: string,
+	modelId: string,
+): Promise<BuiltinChatModelDefaults | undefined> {
+	const builtin = (await getBuiltinCatalog()).models.find(
+		(model) => model.provider === providerId && model.id === modelId,
+	);
+	if (!builtin) return undefined;
+	return {
+		name: builtin.name,
+		reasoning: builtin.reasoning ?? false,
+		contextWindow: builtin.contextWindow,
+		maxTokens: builtin.maxTokens,
 	};
 }
 
