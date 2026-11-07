@@ -250,3 +250,29 @@ test("patchNativeOverrideInDocument 只改覆写记录", () => {
 	assert.deepEqual((record.modelOverrides as Record<string, unknown>)["gpt-x"], { maxTokens: 64_000 });
 	assert.equal(next === state, false);
 });
+
+test("可见性接管：未隐藏 provider 用通配、部分隐藏的 provider 逐个枚举", async () => {
+	const { buildEnabledPatternsFromVisibility } = await import("../models-json-sync.ts");
+	const { createScopedModelVisibility } = await import("../state-metadata-store.ts");
+	const patterns = buildEnabledPatternsFromVisibility(
+		["openai-codex/gpt-6-astra", "anthropic/claude-x"],
+		[
+			{ providerId: "openai-codex", chatModelIds: ["gpt-6-astra", "gpt-6-luna", "gpt-6.1-sol"] },
+			{ providerId: "gemini", chatModelIds: ["gemini-4-argon"] },
+			{ providerId: "anthropic", chatModelIds: ["claude-x", "claude-y"] },
+		],
+	);
+	assert.deepEqual(patterns, [
+		"anthropic/claude-y",
+		"gemini/*",
+		"openai-codex/gpt-6-luna",
+		"openai-codex/gpt-6.1-sol",
+	]);
+	// hidden 清单结构：重复与大小写去重
+	const normalized = createScopedModelVisibility([
+		"OpenAI-Codex/gpt-6-astra",
+		"openai-codex/gpt-6-astra",
+		"",
+	]);
+	assert.deepEqual(normalized, { hiddenModelIds: ["openai-codex/gpt-6-astra"] });
+});

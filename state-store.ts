@@ -326,6 +326,9 @@ export async function buildStateDocumentFromSources(
 		metadataFile.metadata,
 		metadataFile.requirePluginManagedProviderMarker,
 	);
+	if (metadataFile.metadata.scopedModelVisibility !== undefined) {
+		state.scopedModelVisibility = metadataFile.metadata.scopedModelVisibility;
+	}
 	for (const [providerId, provider] of Object.entries(metadataFile.legacyProviders)) {
 		if (!state.providers[providerId]) state.providers[providerId] = provider;
 		if (!state.managedProviderIds.includes(providerId)) state.managedProviderIds.push(providerId);

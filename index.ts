@@ -16,6 +16,7 @@ import { persistManagedConfiguration, recoverPendingConfigurationTransaction, mi
 import { resetClaudeCodeMetadataSession } from "./claude-code-compat.ts";
 import { findProvidersNeedingBaseUrlNormalization, normalizeProviderBaseUrlsInDocument } from "./state-document.ts";
 import { closeLocalProxyServer } from "./local-proxy-service.ts";
+import { persistScopedModelVisibility } from "./models-json-sync.ts";
 import { registerAllFromState, registerCatalogFromState } from "./provider-registrar.ts";
 import { createRequestPipeline } from "./request-pipeline.ts";
 import { createEmptyState, readState } from "./state-store.ts";
@@ -77,6 +78,11 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 			}
 			// [喵喵喵]: 一次性补齐早期版本留在 models.json 里的半成品 baseUrl；
 			// 归一化幂等，写完后后续启动检测不到差异，不会重复写盘。
+			// [喵喵喵]: 可见性接管重算：仅当 state 已接管时按当前注册表重写 enabledModels，
+			// pi 升级带来的新模型在下次启动自动可见（hidden 清单内的持续隐藏）。
+			if (currentState.scopedModelVisibility !== undefined) {
+				await persistScopedModelVisibility(ctx, currentState.scopedModelVisibility.hiddenModelIds);
+			}
 			const staleBaseUrlProviderIds = findProvidersNeedingBaseUrlNormalization(currentState);
 			if (staleBaseUrlProviderIds.length > 0) {
 				await persistManagedConfiguration(ctx, (latest) => ({

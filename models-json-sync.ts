@@ -12,6 +12,7 @@ import {
 	type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import settingsFileLock from "proper-lockfile";
+import { persistScopedModelVisibilityState } from "./configuration-persistence.ts";
 import { join } from "node:path";
 import { minimatch } from "minimatch";
 import { atomicWriteText } from "./atomic-write.ts";
@@ -485,4 +486,99 @@ export async function verifyNativeModelAvailable(
 		warnings.push(t("原生 models.json registry 校验失败：{error}", { error: formatUnknownError(error) }));
 	}
 	return { ok: warnings.length === 0, warnings };
+}
+
+// ========== 可见性接管（scopedModels）==========
+//
+// pi 的 enabledModels 是纯正向并集（无取反模式）；接管策略：
+//   - state.json 保存 hidden 清单（完整 model id）；
+//   - 每次启动/每次面板开关，都按“当前注册表”重算白名单：
+//       未隐藏任何模型的 provider 写 provider/*（pi 升级的新模型默认可见）；
+//       有隐藏模型的 provider 逐个枚举可见模型；
+//   - 用户手工编辑的 thinking 后缀模式在接管下退役（面板承担全部分层职责）。
+
+export interface ScopedVisibilityReconcileResult {
+	patterns: string[];
+	changed: boolean;
+}
+
+export function buildEnabledPatternsFromVisibility(
+	hiddenFullModelIds: readonly string[],
+	registeredProviders: readonly { providerId: string; chatModelIds: readonly string[] }[],
+): string[] {
+	const hiddenSet = new Set(hiddenFullModelIds.map((id) => id.toLowerCase()));
+	const patterns: string[] = [];
+	// [喵喵喵]: 排序在此处统一保证，diff 写入才稳定（不依赖调用方传序）。
+	const blocks = [...registeredProviders].sort((a, b) => a.providerId.localeCompare(b.providerId));
+	for (const { providerId, chatModelIds } of blocks) {
+		if (chatModelIds.length === 0) continue;
+		const visible = chatModelIds.filter((id) => !hiddenSet.has(`${providerId}/${id}`.toLowerCase()));
+		if (visible.length === chatModelIds.length) patterns.push(`${providerId}/*`);
+		else for (const id of visible) patterns.push(`${providerId}/${id}`);
+	}
+	return patterns;
+}
+
+/** 全量替换写入（不要求此前已配置 enabledModels）。 */
+async function writeLockedSettingsFullReplace(
+	path: string,
+	patterns: readonly string[],
+): Promise<boolean> {
+	const initialSnapshot = await readStableTextFileSnapshot(path);
+	const release = await settingsFileLock.lock(path, {
+		realpath: false,
+		retries: { retries: 10, factor: 1, minTimeout: 20, maxTimeout: 20 },
+	});
+	try {
+		let settings: Record<string, unknown> = {};
+		const snapshot = await readStableTextFileSnapshot(path);
+		if (snapshot.source !== undefined) {
+			const parsed = JSON.parse(stripJsonNoise(snapshot.source));
+			if (!isObjectRecord(parsed)) throw new Error(t("{path} 根节点必须是对象", { path }));
+			settings = parsed;
+		}
+		if (JSON.stringify(settings.enabledModels ?? null) === JSON.stringify(patterns)) return false;
+		const currentSnapshot = await readStableTextFileSnapshot(path);
+		if (currentSnapshot.contentHash !== snapshot.contentHash) {
+			throw new Error(t("{path} 已被未遵守 Pi 文件锁的编辑器修改；已取消 enabledModels 同步，请重试。", { path }));
+		}
+		settings.enabledModels = [...patterns];
+		await atomicWriteText(path, stringifyJson(settings));
+		return true;
+	} finally {
+		await release();
+	}
+}
+
+/** 接管写入：先持久化 hidden 清单（复用模型事务的 state.json 路径），再重算并写 settings.json。 */
+export async function persistScopedModelVisibility(
+	ctx: { cwd: string; modelRegistry: ModelRegistryApi },
+	hiddenFullModelIds: readonly string[],
+): Promise<void> {
+	const hidden = [...new Set(hiddenFullModelIds.map((id) => id.trim()).filter(Boolean))];
+	await persistScopedModelVisibilityState(hidden);
+	const detected = collectRegisteredProviders(ctx.modelRegistry);
+	const patterns = buildEnabledPatternsFromVisibility(hidden, detected);
+	if (patterns.length === 0) return;
+	const state = await readEnabledModelStateForNextPiStart(ctx.cwd);
+	const scope = state.configured ? (state.scope === "project" ? "project" : "global") : "global";
+	const path = scope === "project"
+		? join(ctx.cwd, CONFIG_DIR_NAME, "settings.json")
+		: join(getAgentDir(), "settings.json");
+	await writeLockedSettingsFullReplace(path, patterns);
+}
+
+interface ModelRegistryApi {
+	getAll(): readonly { provider: string; id: string }[];
+}
+
+function collectRegisteredProviders(registry: ModelRegistryApi): { providerId: string; chatModelIds: string[] }[] {
+	const map = new Map<string, Set<string>>();
+	for (const model of registry.getAll()) {
+		if (!map.has(model.provider)) map.set(model.provider, new Set());
+		map.get(model.provider)!.add(model.id);
+	}
+	return [...map.entries()]
+		.map(([providerId, ids]) => ({ providerId, chatModelIds: [...ids].sort((a, b) => a.localeCompare(b)) }))
+		.sort((a, b) => a.providerId.localeCompare(b.providerId));
 }

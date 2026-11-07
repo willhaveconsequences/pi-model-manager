@@ -41,13 +41,7 @@ import {
 } from "../state-document.ts";
 import { readState } from "../state-store.ts";
 import { persistNativeOverrideConfiguration } from "../configuration-persistence.ts";
-import {
-	enableModelForNextPiStart,
-	isModelEnabledPatterns,
-	readEnabledModelStateForNextPiStart,
-	removeModelFromNextPiStart,
-	type EnabledModelState,
-} from "../models-json-sync.ts";
+import { isModelEnabledPatterns, readEnabledModelStateForNextPiStart, type EnabledModelState } from "../models-json-sync.ts";
 import { getBuiltinChatModelDefaults, getBuiltinProviderDefaults, getBuiltinProviderIds, getBuiltinProviderName, getBuiltinProviderRawDefaults } from "../builtin-model-catalog.ts";
 import type { CompactionReserveChoice, ModelDraft, StateDocument, StoredModel, StoredProvider } from "../types.ts";
 import { editModel } from "./editor-model.ts";
@@ -55,6 +49,7 @@ import { editModelOverride } from "./editor-model-override.ts";
 import { editProvider } from "./editor-provider.ts";
 import { showOptionPicker, showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
 import { runScreenFlow } from "./screen-host.ts";
+import { runModelVisibilityPanel, toggleScopedModelVisibility } from "./model-visibility-panel.ts";
 import {
 	formatModelListHeader,
 	formatModelListRow,
@@ -276,25 +271,8 @@ export function resolveOverrideMenuModel<TModel extends { id: string }>(
 }
 
 async function toggleBuiltinModelHidden(ctx: ExtensionCommandContext, providerId: string, modelId: string): Promise<void> {
-	if (!modelId) {
-		ctx.ui.notify(t("没有可切换的模型。"), "info");
-		return;
-	}
-	const fullModelId = getModelFullId(providerId, modelId);
-	const state = await readEnabledModelStateForNextPiStart(ctx.cwd);
-	if (!state.configured) {
-		ctx.ui.notify(t("Pi 的模型可见性由 enabledModels 白名单控制；当前未配置白名单，无需隐藏（所有模型都可见）。"), "warning");
-		return;
-	}
-	if (!isModelEnabledPatterns(state.patterns, fullModelId)) {
-		const outcome = await enableModelForNextPiStart(ctx.cwd, fullModelId);
-		if (outcome.mode === "updated") ctx.ui.notify(t("已恢复显示 {fullModelId}（下次启动生效）", { fullModelId }), "info");
-		else ctx.ui.notify(t("{fullModelId} 已在白名单内", { fullModelId }), "info");
-		return;
-	}
-	const outcome = await removeModelFromNextPiStart(ctx.cwd, fullModelId);
-	if (outcome.mode === "updated") ctx.ui.notify(t("已隐藏 {fullModelId}（从 enabledModels 白名单移除；下次启动生效）", { fullModelId }), "info");
-	else ctx.ui.notify(t("{fullModelId} 在白名单中以通配模式覆盖，未单独列出；如需隐藏请调整白名单模式。", { fullModelId }), "warning");
+	// [喵喵喵]: 与可见性面板共用同一份 hidden 状态，不再各自读写 enabledModels。
+	await toggleScopedModelVisibility(ctx, providerId, modelId);
 }
 
 function formatOverrideModelLabel(
@@ -770,7 +748,7 @@ async function createProviderAndModel(pi: ExtensionAPI, ctx: ExtensionCommandCon
 
 // ========== 入口 ==========
 
-type DashboardShortcut = "new-provider" | "edit-builtin" | "header-profiles" | "delete-provider" | "language";
+type DashboardShortcut = "new-provider" | "edit-builtin" | "model-visibility" | "header-profiles" | "delete-provider" | "language";
 
 export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
 	const cursor: MenuCursor = { index: 0 };
@@ -804,6 +782,7 @@ async function runDashboardLoop(
 			[
 				{ input: "n", shortcut: "new-provider" },
 				{ input: "b", shortcut: "edit-builtin" },
+				{ input: "g", shortcut: "model-visibility" },
 				{ input: "h", shortcut: "header-profiles" },
 				{ input: "d", shortcut: "delete-provider" },
 				{ input: "l", shortcut: "language" },
@@ -835,6 +814,7 @@ async function runDashboardLoop(
 					{ key: "Enter", label: t("进入") },
 					{ key: "N", label: t("新建接入") },
 					{ key: "B", label: t("内置接入") },
+					{ key: "G", label: t("可见性") },
 					{ key: "D", label: t("删除接入") },
 					{ key: "H", label: t("请求头管理") },
 					{ key: "L", label: "语言 / Language" },
@@ -847,6 +827,7 @@ async function runDashboardLoop(
 		if (action.type === "shortcut") {
 			if (action.shortcut === "new-provider") await createProviderAndModel(pi, ctx);
 			if (action.shortcut === "edit-builtin") await createBuiltinOverride(pi, ctx);
+			if (action.shortcut === "model-visibility") await runModelVisibilityPanel(pi, ctx);
 			if (action.shortcut === "header-profiles") await runHeaderProfilesPanel(pi, ctx);
 			if (action.shortcut === "language") await selectUiLanguage(ctx);
 			if (action.shortcut === "delete-provider") {

@@ -77,6 +77,7 @@ function buildRows(draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline
 			id: "compactionReserve",
 			label: t("压缩预留"),
 			value: describeReserve(draft),
+			adjustable: true,
 		},
 		{
 			id: "modelName",

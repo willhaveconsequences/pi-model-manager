@@ -393,3 +393,16 @@ export async function persistModelDeletionConfiguration(
 		(source, change) => buildModelsDocumentWithoutModel(change.document, source, providerId, modelId),
 	));
 }
+
+/** 仅持久化可见性接管的 hidden 清单（models.json 原文保持不变）。 */
+export async function persistScopedModelVisibilityState(hiddenFullModelIds: readonly string[]): Promise<void> {
+	await withConfigurationLock(() => persistConfigurationInsideLock(
+		(latest) => ({
+			document: { ...latest, scopedModelVisibility: { hiddenModelIds: [...hiddenFullModelIds] } },
+			changedProviderIds: [],
+			removedProviderIds: [],
+		}),
+		(source) => source,
+	));
+	invalidateStateCache();
+}

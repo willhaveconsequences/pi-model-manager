@@ -110,6 +110,8 @@ export interface StateDocument {
 	managedProviderIds: string[];
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>;
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>;
+	/** 可见性接管状态（未定义 = 未接管；存在即按 hiddenModelIds 重算 enabledModels）。 */
+	scopedModelVisibility?: { hiddenModelIds: string[] };
 }
 
 // ========== TUI draft（可变中间态） ==========

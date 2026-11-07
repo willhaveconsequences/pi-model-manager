@@ -59,6 +59,11 @@ interface ModelMetadata {
 	generatedClientHeaders?: Record<string, string>;
 }
 
+export interface ScopedModelVisibilityState {
+	/** 被插件从 enabledModels 白名单中隐藏的完整模型 ID（小写存储）。 */
+	hiddenModelIds: string[];
+}
+
 export interface MetadataDocument {
 	version: 4 | 5;
 	/** 明确由插件创建或接管的 Provider ID。 */
@@ -67,6 +72,8 @@ export interface MetadataDocument {
 	models: Record<string, ModelMetadata>;
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>;
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>;
+	/** 可见性接管：存在即代表扩展会按本清单重算 enabledModels。 */
+	scopedModelVisibility?: ScopedModelVisibilityState;
 }
 
 export interface ParsedMetadataStateFile {
@@ -79,6 +86,17 @@ export interface MetadataStateSnapshot extends ParsedMetadataStateFile {
 	source: string | undefined;
 	signature: FileSignature;
 	contentHash: string;
+}
+
+export function createScopedModelVisibility(raw: unknown): ScopedModelVisibilityState {
+	let list: unknown[] = [];
+	if (Array.isArray(raw)) list = raw;
+	else if (isObjectRecord(raw) && Array.isArray(raw.hiddenModelIds)) list = raw.hiddenModelIds;
+	const hiddenModelIds = list
+		.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+		// [喵喵喵]: 统一小写存储 —— 消费端（reconcile/面板）全部按小写比对，保持单一表示。
+		.map((id) => id.trim().toLowerCase());
+	return { hiddenModelIds: [...new Set(hiddenModelIds)] };
 }
 
 export function createEmptyMetadata(): MetadataDocument {
@@ -389,6 +407,9 @@ function readCommonMetadataFields(parsed: Record<string, unknown>, base: Metadat
 		...base,
 		requestHeaderProfiles,
 		clientHeaderCaptures,
+		...(Object.hasOwn(parsed, "scopedModelVisibility")
+			? { scopedModelVisibility: createScopedModelVisibility(parsed.scopedModelVisibility) }
+			: {}),
 	};
 }
 
@@ -521,6 +542,7 @@ export async function readMetadataStateSnapshot(): Promise<MetadataStateSnapshot
 
 function extractMetadata(state: StateDocument): MetadataDocument {
 	const metadata = createEmptyMetadata();
+	if (state.scopedModelVisibility !== undefined) metadata.scopedModelVisibility = state.scopedModelVisibility;
 	metadata.managedProviderIds = Object.entries(state.providers)
 		.filter(([, provider]) => provider.managed)
 		.map(([providerId]) => providerId);
