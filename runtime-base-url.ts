@@ -1,7 +1,7 @@
 // 用户侧 API 根地址与 Pi 原生 Anthropic SDK 地址之间的转换。
 
 import { t } from "./i18n.ts";
-import type { ApiKind } from "./types.ts";
+import type { ProviderApiId } from "./types.ts";
 
 function formatUrl(url: URL): string {
 	return url.toString().replace(/^(https?:\/\/[^/?#]+)\/(?=$|[?#])/i, "$1");
@@ -29,7 +29,7 @@ export function validateRequestBaseUrl(baseUrl: string): void {
 	if (url.username || url.password) throw new Error(t("Base URL 不支持内嵌认证；请使用 API key 或请求头配置"));
 }
 
-export function resolveRuntimeBaseUrl(api: ApiKind, baseUrl: string): string {
+export function resolveRuntimeBaseUrl(api: ProviderApiId, baseUrl: string): string {
 	const url = new URL(baseUrl.trim());
 	trimPath(url);
 	if (url.pathname === "/") {

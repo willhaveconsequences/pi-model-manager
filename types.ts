@@ -7,6 +7,9 @@
 // ========== 基础枚举 ==========
 
 export type ApiKind = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
+/** 接入协议标识：扩展干预能力只覆盖这 4 个 ApiKind；内置覆写需要携带
+ *  pi 原生接入自带的协议（如 openai-codex-responses），仅作展示与地址语义标注。 */
+export type ProviderApiId = ApiKind | (string & {});
 export type ModelInputKind = "text" | "image";
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
@@ -75,7 +78,7 @@ export interface StoredModel {
 
 export interface StoredProvider {
 	name: string;
-	api: ApiKind;
+	api: ProviderApiId;
 	baseUrl: string;
 	/** 运行时所有权，未接管的原生 Provider 不由插件生成请求头或动态注册。 */
 	managed: boolean;
@@ -114,7 +117,7 @@ export interface StateDocument {
 export interface ProviderDraft {
 	providerId: string;
 	providerName: string;
-	api: ApiKind;
+	api: ProviderApiId;
 	/** 内置接入覆写草稿：只允许覆盖名称/地址/key/认证头，模型清单不可编辑。 */
 	nativeOverride?: boolean;
 	/** 展示用提示：pi 内置默认 API 根地址（覆写编辑器摘要行使用）。 */

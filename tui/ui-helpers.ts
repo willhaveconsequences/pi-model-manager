@@ -21,6 +21,7 @@ import type {
 	StoredModel,
 	StoredProvider,
 	StoredRequestHeaderProfile,
+	ProviderApiId,
 } from "../types.ts";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 
@@ -66,7 +67,7 @@ function formatTableHeader(line: string): string {
 	return `  ${line}`;
 }
 
-export function formatApiShort(api: ApiKind): string {
+export function formatApiShort(api: ProviderApiId): string {
 	if (api === "openai-responses") return "Responses";
 	if (api === "openai-completions") return "Chat";
 	if (api === "anthropic-messages") return "Claude";
@@ -419,7 +420,7 @@ export function getBuiltInProfileChoices(): { id: Exclude<ClientHeaderProfileId,
 
 export function describeProfile(
 	profile: ClientHeaderProfileId,
-	api: ApiKind,
+	api: ProviderApiId,
 	requestHeaderProfileId?: string,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 ): string {

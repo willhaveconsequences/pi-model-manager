@@ -36,7 +36,7 @@ import {
 	validateProviderDraft,
 } from "../state-document.ts";
 import { readState } from "../state-store.ts";
-import { getBuiltinProviderDefaults, getBuiltinProviderIds, getBuiltinProviderName } from "../builtin-model-catalog.ts";
+import { getBuiltinProviderDefaults, getBuiltinProviderIds, getBuiltinProviderName, getBuiltinProviderRawDefaults } from "../builtin-model-catalog.ts";
 import type { ModelDraft, StateDocument, StoredModel, StoredProvider } from "../types.ts";
 import { editModel } from "./editor-model.ts";
 import { editProvider } from "./editor-provider.ts";
@@ -315,7 +315,8 @@ async function createBuiltinOverride(pi: ExtensionAPI, ctx: ExtensionCommandCont
 		? state.providers[providerId]!
 		: undefined;
 	if (storedOverride) return editOverrideStoredProvider(pi, ctx, providerId, storedOverride);
-	const defaults = await getBuiltinProviderDefaults(providerId);
+	// [喵喵喵]: 用原始协议默认值（如 openai-codex-responses）：覆写只覆盖静态凭据/地址字段，协议不再受扩展支持面限制。
+	const defaults = await getBuiltinProviderRawDefaults(providerId);
 	if (!defaults?.api) {
 		ctx.ui.notify(t("pi 内置目录中缺少该接入的默认协议信息，暂无法覆写：{providerId}", { providerId }), "warning");
 		return false;

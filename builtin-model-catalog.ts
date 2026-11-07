@@ -5,7 +5,7 @@
 // 也不允许目录读取触发模型网络请求。
 
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ApiKind } from "./types.ts";
+import type { ApiKind, ProviderApiId } from "./types.ts";
 
 interface BuiltinProviderDefaults {
 	api?: ApiKind;
@@ -22,6 +22,12 @@ interface BuiltinCatalog {
 	models: readonly BuiltinCatalogModel[];
 	providerIds: ReadonlySet<string>;
 	providerNames: ReadonlyMap<string, string>;
+}
+
+export interface BuiltinProviderRawDefaults {
+	/** pi 原生接入的第一优先协议，不做扩展支持面过滤（如 openai-codex-responses）。 */
+	api: ProviderApiId;
+	baseUrl?: string;
 }
 
 const SUPPORTED_API_KINDS = new Set<ApiKind>([
@@ -97,4 +103,13 @@ export async function getBuiltinProviderDefaults(
 		api: asSupportedApiKind(firstModel.api),
 		baseUrl: firstModel.baseUrl,
 	};
+}
+
+/** [喵喵喵]: 覆写视图需要携带 pi 原生接入的真实协议（codex-responses 等扩展不干预的 api 也允许覆写凭据/地址）。 */
+export async function getBuiltinProviderRawDefaults(providerId: string): Promise<BuiltinProviderRawDefaults | undefined> {
+	const firstModel = (await getBuiltinCatalog()).models.find(
+		(model) => model.provider === providerId,
+	);
+	if (!firstModel) return undefined;
+	return { api: firstModel.api, baseUrl: firstModel.baseUrl };
 }

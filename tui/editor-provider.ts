@@ -291,11 +291,7 @@ async function editField(
 	}
 	if (fieldId === "apiKey") {
 		const currentLabel = draft.apiKey ? maskSecret(draft.apiKey) : t("<空>");
-		// 覆写模式下留空同样表示“不覆盖，用 pi 内置认证”。
-		const prompt = draft.nativeOverride
-			? t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空清除）", { current: currentLabel })
-			: t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空保持原值）", { current: currentLabel });
-		const value = await ctx.ui.input(prompt, "");
+		const value = await ctx.ui.input(t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空清除）", { current: currentLabel }), "");
 		if (value === undefined) return;
 		draft.apiKey = value.trim();
 		return;

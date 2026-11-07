@@ -24,6 +24,7 @@ import type {
 	ApiKind,
 	CompatSettings,
 	OpenAIChatCompatibilityMode,
+	ProviderApiId,
 	ModelDraft,
 	ProviderDraft,
 	RequestHeaderProfileDraft,
@@ -40,6 +41,10 @@ const API_KINDS: ApiKind[] = ["openai-completions", "openai-responses", "anthrop
 const ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const MAX_PROVIDER_ID_LENGTH = 48;
 const RESERVED_REQUEST_HEADER_PROFILE_IDS = new Set(["claude-code", "codex-cli", "claude-code-live", "codex-cli-live"]);
+
+function resolveApiKindOrFallback(value: ProviderApiId): ApiKind {
+	return isApiKind(value) ? value : "openai-completions";
+}
 
 function isApiKind(value: unknown): value is ApiKind {
 	return typeof value === "string" && API_KINDS.includes(value as ApiKind);
@@ -76,7 +81,7 @@ export function getAuthStatusText(apiKey: string | undefined): string {
 
 // ========== draft 工厂 ==========
 
-export function createProviderDraft(api: ApiKind = "openai-responses"): ProviderDraft {
+export function createProviderDraft(api: ProviderApiId = "openai-responses"): ProviderDraft {
 	const preset = findPresetForApi(api);
 	return {
 		providerId: "",
@@ -128,10 +133,13 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 
 function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft {
 	const preset = findPresetForApi(providerDraft.api);
+	// [喵喵喵]: 模型草稿只服务可受管的自建接入，其协议必来自 4 种已知类型；
+	// 内置覆写不会进入模型编辑器，未知协议在此收敛为兜底值。
+	const api = resolveApiKindOrFallback(providerDraft.api);
 	return {
 		providerId: providerDraft.providerId,
 		providerName: providerDraft.providerName,
-		api: providerDraft.api,
+		api: api,
 		baseUrl: providerDraft.baseUrl,
 		apiKey: providerDraft.apiKey,
 		authHeader: providerDraft.authHeader,
@@ -366,7 +374,7 @@ function buildProviderFromDraft(
 		authHeader: draft.authHeader,
 		clientHeaderProfile: draft.clientHeaderProfile,
 		models: (current?.models ?? []).map((model) => {
-			const nextModel = keepModelFieldsSupportedByApi(model, draft.api, apiChanged);
+			const nextModel = keepModelFieldsSupportedByApi(model, resolveApiKindOrFallback(draft.api), apiChanged);
 			if (current && !current.managed && (model.baseUrl
 				|| (!apiChanged && draft.baseUrl === fromNativeBaseUrl(current.api, current.baseUrl)))) {
 				const api = model.api ?? current.api;
@@ -615,7 +623,7 @@ function upsertModel(models: StoredModel[], next: StoredModel, replacedId: strin
 /** 内置覆写草稿：ID 固定为内置接入 ID；留空字段不写覆写。 */
 export function createNativeOverrideProviderDraft(
 	providerId: string,
-	api: ApiKind = "openai-responses",
+	api: ProviderApiId = "openai-responses",
 	builtinBaseUrlHint = "",
 ): ProviderDraft {
 	return {

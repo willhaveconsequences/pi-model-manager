@@ -6,7 +6,7 @@
 import { cloneStringRecord, hasStringRecordEntries } from "../common.ts";
 import { buildCodexClientHeaders } from "./codex-client-headers.ts";
 import { t } from "../i18n.ts";
-import type { ApiKind, BuiltInClientHeaderProfileId, ClientHeaderProfileId, CompatSettings, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
+import type { ProviderApiId, BuiltInClientHeaderProfileId, ClientHeaderProfileId, CompatSettings, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
 import { CLAUDE_CODE_CLIENT_HEADERS, CODEX_CLI_CLIENT_HEADERS } from "./builtin-client-headers.ts";
 
 const ANTHROPIC_INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
@@ -32,7 +32,7 @@ function removeAnthropicBetaFeature(headers: Record<string, string>, feature: st
 
 function cloneHeadersForCompat(
 	headers: Record<string, string>,
-	api: ApiKind,
+	api: ProviderApiId,
 	compat?: CompatSettings,
 ): Record<string, string> {
 	const cloned = cloneStringRecord(headers);
@@ -77,19 +77,19 @@ export function resolveProviderCustomHeaders(
 	return (profileId && requestHeaderProfiles[profileId]?.headers) || selection.customClientHeaders || {};
 }
 
-function getRecommendedClientHeaderProfile(api: ApiKind): ClientHeaderProfileId {
+function getRecommendedClientHeaderProfile(api: ProviderApiId): ClientHeaderProfileId {
 	if (api === "anthropic-messages") return "claude-code";
 	if (api === "openai-completions" || api === "openai-responses") return "codex-cli";
 	return "disabled";
 }
 
-export function resolveClientHeaderProfile(profile: ClientHeaderProfileId, api: ApiKind): ClientHeaderProfileId {
+export function resolveClientHeaderProfile(profile: ClientHeaderProfileId, api: ProviderApiId): ClientHeaderProfileId {
 	return profile === "recommended" ? getRecommendedClientHeaderProfile(api) : profile;
 }
 
 export function getClientHeadersForProfile(
 	profile: ClientHeaderProfileId,
-	api: ApiKind,
+	api: ProviderApiId,
 	customHeaders: Record<string, string>,
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
 	compat?: CompatSettings,
@@ -110,7 +110,7 @@ export function getClientHeadersForProfile(
 	}
 	return hasStringRecordEntries(customHeaders) ? cloneStringRecord(customHeaders) : undefined;
 }
-export function getClientHeaderProfileDisplay(profile: ClientHeaderProfileId, api: ApiKind): string {
+export function getClientHeaderProfileDisplay(profile: ClientHeaderProfileId, api: ProviderApiId): string {
 	const resolved = resolveClientHeaderProfile(profile, api);
 	if (profile === "recommended") {
 		// [喵喵喵]: 与表格单元格对齐，禁用歧义宽度的 U+2192，避免 CJK 字体全宽字形压字。

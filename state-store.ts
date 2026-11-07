@@ -4,7 +4,7 @@
 // state.json 中的插件私有元数据，提供 TUI 与运行时注册使用的统一视图。
 
 import { setTimeout as delay } from "node:timers/promises";
-import { getBuiltinProviderDefaults } from "./builtin-model-catalog.ts";
+import { getBuiltinProviderDefaults, getBuiltinProviderRawDefaults, type BuiltinProviderRawDefaults } from "./builtin-model-catalog.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
 import { cloneJson, cloneStringRecord, hasStringRecordEntries, isObjectRecord } from "./common.ts";
 import { readStableTextFileSnapshot } from "./file-snapshot.ts";
@@ -183,7 +183,7 @@ function buildNativeOverrideProviderFromModelsJson(
 	providerId: string,
 	entry: ModelsJsonProviderEntry,
 	metadata: MetadataDocument,
-	builtinDefaults: { api?: ApiKind; baseUrl?: string } | undefined,
+	builtinDefaults: BuiltinProviderRawDefaults | undefined,
 ): StoredProvider | undefined {
 	// [喵喵喵]: 覆写视图只呈现插件自己写入的局部节点；双重所有权：state.json managedProviderIds + 节点 nativeOverride 标记。
 	if (builtinDefaults === undefined) return undefined;
@@ -222,7 +222,7 @@ async function buildStoredProviderFromModelsJson(
 			providerId,
 			entry,
 			metadata,
-			await getBuiltinProviderDefaults(providerId),
+			await getBuiltinProviderRawDefaults(providerId),
 		);
 	}
 

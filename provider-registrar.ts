@@ -11,7 +11,7 @@ import { removeProviderLocalProxyRoutes } from "./local-proxy-service.ts";
 import { getClientHeadersForProfile, mergeModelRequestHeaders, resolveClientHeaderProfile, resolveProviderCustomHeaders } from "./presets/client-headers.ts";
 import { createProviderTransport } from "./provider-transport.ts";
 import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
-import type { ApiKind, BuiltInClientHeaderProfileId, StateDocument, StoredClientHeaderCapture, StoredModel, StoredProvider, StoredRequestHeaderProfile } from "./types.ts";
+import type { ApiKind, BuiltInClientHeaderProfileId, ProviderApiId, StateDocument, StoredClientHeaderCapture, StoredModel, StoredProvider, StoredRequestHeaderProfile } from "./types.ts";
 
 type ProviderModelConfig = NonNullable<ProviderConfig["models"]>[number];
 const REGISTERED_PROVIDER_CONFIGS = new Map<string, Provider>();
@@ -48,7 +48,7 @@ async function buildNativeProvider(providerId: string, provider: StoredProvider,
 	return createProviderTransport(native, provider);
 }
 
-function asManagedApi(value: string | undefined, fallback: ApiKind): ApiKind {
+function asManagedApi(value: ProviderApiId | undefined, fallback: ProviderApiId): ProviderApiId {
 	if (value === "openai-completions" || value === "openai-responses"
 		|| value === "anthropic-messages" || value === "google-generative-ai") return value;
 	return fallback;

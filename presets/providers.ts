@@ -1,6 +1,6 @@
 // 4 种 API 协议的默认预设。新建接入/模型时用，便于一键填好常用字段。
 
-import type { ApiKind, ModelInputKind, ProviderDraft } from "../types.ts";
+import type { ApiKind, ModelInputKind, ProviderApiId, ProviderDraft } from "../types.ts";
 import { resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
 
 export interface ProviderPreset {
@@ -72,7 +72,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
 	},
 ];
 
-export function findPresetForApi(api: ApiKind | undefined): ProviderPreset {
+export function findPresetForApi(api: ProviderApiId | undefined): ProviderPreset {
 	return PROVIDER_PRESETS.find((preset) => preset.api === api) ?? PROVIDER_PRESETS[0]!;
 }
 

@@ -107,6 +107,7 @@ const ENGLISH_MESSAGES = {
 	"取消覆写失败：{error}": "Failed to remove the override: {error}",
 	"pi 内置接入目录不可用，暂无法覆写内置接入。": "The pi builtin provider catalog is unavailable; builtin overrides cannot be created right now.",
 	"{name} ({providerId}) · 已有覆写": "{name} ({providerId}) - overridden",
+	"已有覆写": "overridden",
 	"选择内置接入进行覆写": "Pick a builtin provider to override",
 	"pi 内置目录中缺少该接入的默认协议信息，暂无法覆写：{providerId}": "The pi builtin catalog has no default API protocol for this provider; cannot override: {providerId}",
 	"覆写内置接入 {providerId}": "Override builtin provider {providerId}",
