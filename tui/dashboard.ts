@@ -267,6 +267,14 @@ async function deleteModel(pi: ExtensionAPI, ctx: ExtensionCommandContext, provi
 
 // ========== 内置接入覆写流程 ==========
 
+/** 菜单行 id == 模型 id；Enter/搜索路径都按 id 反查，禁止索引猜测。 */
+export function resolveOverrideMenuModel<TModel extends { id: string }>(
+	chatModels: readonly TModel[],
+	rowId: string,
+): TModel | undefined {
+	return chatModels.find((model) => model.id === rowId);
+}
+
 async function toggleBuiltinModelHidden(ctx: ExtensionCommandContext, providerId: string, modelId: string): Promise<void> {
 	if (!modelId) {
 		ctx.ui.notify(t("没有可切换的模型。"), "info");
@@ -482,12 +490,8 @@ async function showNativeOverrideMenu(
 			}
 			continue;
 		}
-		const selectedIndex = Number.parseInt(action.id, 10);
 		// [喵喵喵]: 行 id 就是模型 ID；过滤/滚动窗口里都应按 id 反查，避免索引错位。
-		const selectedModel = chatModels.find((model) => model.id === action.id)
-			?? (Number.isFinite(selectedIndex) && selectedIndex >= 0 && selectedIndex < chatModels.length
-				? chatModels[selectedIndex]!
-				: undefined);
+		const selectedModel = resolveOverrideMenuModel(chatModels, action.id);
 		if (!selectedModel) continue;
 		await editNativeOverrideModel(ctx, providerId, selectedModel);
 	}
