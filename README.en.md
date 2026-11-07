@@ -19,17 +19,17 @@ The screens below are rendered by the real components at 88 columns. In practice
 /model-manager
 4 接入 · 5 模型 · 0 内置抓包 · 0 自定义请求头
 
-  接入                API          模型  请求头           代理    认证    状态
-❯ OpenAI (openai)     Responses       2  Auto→Codex       direct  env     ready
-  Claude (claude)     Claude          1  ClaudeCode       direct  env     ready
-  Gemini (gemini)     Gemini          1  Auto→不添加      direct  env     ready
-  Local vLLM (local)  Chat            1  Off              proxy   key     ready
+  接入                API          模型  请求头            代理    认证    状态
+❯ OpenAI (openai)     Responses       2  Auto->Codex       direct  env     ready
+  Claude (claude)     Claude          1  ClaudeCode        direct  env     ready
+  Gemini (gemini)     Gemini          1  Auto->不添加      direct  env     ready
+  Local vLLM (local)  Chat            1  Off               proxy   key     ready
 
 ────────────────────────────────────────────────────────────────────────────────────────
 OpenAI (openai)
   endpoint  https://api.openai.com/v1
   proxy     direct
-  api       Responses · headers Auto→Codex · auth env
+  api       Responses · headers Auto->Codex · auth env
   models    gpt-5.6-sol, gpt-5.6-terra
 
 ↑↓ 选择   Enter 进入   N 新建接入   D 删除接入   H 请求头   Esc 退出   / 搜索
@@ -44,7 +44,7 @@ OpenAI (openai)
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
 /model-manager / OpenAI
-Responses · 2 模型 · headers Auto→Codex · proxy direct · auth env
+Responses · 2 模型 · headers Auto->Codex · proxy direct · auth env
 endpoint  https://api.openai.com/v1
 
   模型 ID         显示名    输入        Thinking   上下文
@@ -60,7 +60,7 @@ endpoint  https://api.openai.com/v1
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
 编辑接入 openai
-API Responses · 请求头 自动推荐（Auto→Codex）
+API Responses · 请求头 自动推荐（Auto->Codex）
 接入 ID 必填，且不能与已有或 pi 内置接入重复
 Ctrl+S 保存并同步 models.json；不切换当前会话模型
 
@@ -72,7 +72,7 @@ Ctrl+S 保存并同步 models.json；不切换当前会话模型
   代理地址        关闭时不使用
   API key         $OPENAI_API_KEY
   认证头          默认
-  请求头          自动推荐（Auto→Codex）
+  请求头          自动推荐（Auto->Codex）
 
 ↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并同步   Esc 返回
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
   Fast mode       ◀ 标准 ▶
   上下文窗口      ◀ 1050000 ▶
   最大输出        ◀ 128000 ▶
-  请求头          跟随接入（Auto→Codex）
+  请求头          跟随接入（Auto->Codex）
 
 ↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并启用   Esc 返回
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -179,9 +179,10 @@ pi install npm:pi-model-manager
 
    | Key | Action |
    | --- | --- |
-   | `Enter` | Open the selected provider and manage its models |
+   | `Enter` | Open the selected provider and manage its models; builtin override rows open the override editor directly |
    | `N` | Create a provider and its first model |
-   | `D` | Delete the selected provider |
+   | `B` | Pick a pi builtin provider and override it (partial node covering name / Base URL / API key / auth header) |
+   | `D` | Delete the selected provider; for builtin overrides this removes the override and restores models.json |
    | `H` | Manage reusable header profiles |
    | `L` | Switch the UI language (Simplified Chinese / English); the choice applies immediately and is saved |
    | `/` | Search the current list; `Tab` leaves the input while keeping the filter, `Esc` clears it |
@@ -271,7 +272,9 @@ Explicit native headers override built-in templates; selecting a custom profile 
 | `~/.pi/agent/models.json` | Native Pi provider and model definitions; the single source of truth for model configuration |
 | `~/.pi/agent/extensions/pi-model-manager/state.json` | Private metadata such as header choices, custom profiles, proxy switches, Responses service tiers, and Anthropic custom endpoint markers |
 
-The extension generates client headers, proxy routes, and dynamic registrations only for explicitly managed providers. Ownership requires both a managed ID in `state.json` and a `piModelManager.managed` marker on the Provider node in `models.json`; this prevents a deleted Provider ID from silently taking ownership of an unrelated native Provider that later reuses the same ID. Native providers without this ownership evidence remain unmanaged: saving unrelated settings does not rewrite their existing headers or unknown native fields. Built-in Pi providers cannot be edited or deleted through this extension.
+The extension generates client headers, proxy routes, and dynamic registrations only for explicitly managed providers. Ownership requires both a managed ID in `state.json` and a `piModelManager.managed` marker on the Provider node in `models.json`; this prevents a deleted Provider ID from silently taking ownership of an unrelated native Provider that later reuses the same ID. Native providers without this ownership evidence remain unmanaged: saving unrelated settings does not rewrite their existing headers or unknown native fields.
+
+Built-in Pi providers are never fully taken over: the model list, authentication, and `/login` flows stay owned by Pi's builtin catalog. The extension provides a "builtin override": in the editor you only override the display name, Base URL, API key, and auth header; saving writes a partial `models.json` node without `models`, which Pi composes on top of the builtin catalog. Override ownership is recorded as the `piModelManager.nativeOverride` marker on that node; removing the override strips only the fields the extension wrote and leaves everything else in the node untouched. Override rows do not register dynamic providers and do not participate in client headers, proxy routing, or Responses compatibility features.
 
 Plugin configuration writes are serialized with a cross-process lock, and `enabledModels` also honors Pi's `proper-lockfile` lock. An intent journal makes the `models.json` / `state.json` pair recoverable after interruption, and readers reject an in-progress half-written pair. External editors do not honor these locks, so content hashes are still checked before saving; an external change cancels the save instead of being overwritten.
 

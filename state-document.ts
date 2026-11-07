@@ -97,6 +97,14 @@ export function createProviderDraft(api: ApiKind = "openai-responses"): Provider
 }
 
 export function createProviderDraftFromStored(providerId: string, stored: StoredProvider): ProviderDraft {
+	if (stored.nativeOverride) {
+		const draft = createNativeOverrideProviderDraft(providerId, stored.api);
+		draft.providerName = stored.name && stored.name !== providerId ? stored.name : "";
+		draft.baseUrl = stored.baseUrl.trim();
+		draft.apiKey = stored.apiKey ?? "";
+		draft.authHeader = stored.authHeader ?? false;
+		return draft;
+	}
 	const api = isApiKind(stored.api) ? stored.api : "openai-completions";
 	const preset = findPresetForApi(api);
 	return {
@@ -347,6 +355,7 @@ function buildProviderFromDraft(
 	current: StoredProvider | undefined,
 	draft: ProviderDraft,
 ): StoredProvider {
+	if (draft.nativeOverride) return buildNativeOverrideFromDraft(current, draft);
 	const apiChanged = Boolean(current && current.api !== draft.api);
 	const next: StoredProvider = {
 		...(current ?? { models: [] }),
@@ -599,6 +608,60 @@ export function deleteRequestHeaderProfileFromDocument(document: StateDocument, 
 function upsertModel(models: StoredModel[], next: StoredModel, replacedId: string | undefined): StoredModel[] {
 	const retained = models.filter((m) => m.id !== next.id && m.id !== replacedId);
 	return [...retained, next];
+}
+
+// ========== 内置接入覆写 ==========
+
+/** 内置覆写草稿：ID 固定为内置接入 ID；留空字段不写覆写。 */
+export function createNativeOverrideProviderDraft(
+	providerId: string,
+	api: ApiKind = "openai-responses",
+	builtinBaseUrlHint = "",
+): ProviderDraft {
+	return {
+		providerId,
+		providerName: "",
+		api,
+		nativeOverride: true,
+		builtinBaseUrlHint,
+		openAIChatCompatibilityMode: "standard",
+		openAIResponsesStreamCompletionMode: "standard",
+		openAIResponsesAutoRecoveryEnabled: false,
+		baseUrl: "",
+		apiKey: "",
+		authHeader: false,
+		clientHeaderProfile: "disabled",
+		customClientHeaders: {},
+		httpProxyEnabled: false,
+		httpProxyUrl: DEFAULT_PROVIDER_HTTP_PROXY_URL,
+		selectedIndex: 0,
+	};
+}
+
+export function validateNativeOverrideDraft(draft: ProviderDraft): string[] {
+	const errors: string[] = [];
+	const id = draft.providerId.trim();
+	if (!id) errors.push(t("接入 ID 不能为空"));
+	else if (!ID_PATTERN.test(id)) errors.push(t("接入 ID 只能包含字母、数字、点、下划线和连字符"));
+	if (draft.baseUrl.trim()) validateUrl(draft.baseUrl.trim(), "Base URL", errors);
+	return errors;
+}
+
+export function buildNativeOverrideFromDraft(current: StoredProvider | undefined, draft: ProviderDraft): StoredProvider {
+	void current;
+	const next: StoredProvider = {
+		name: trimOrFallback(draft.providerName, draft.providerId.trim()),
+		api: draft.api,
+		baseUrl: draft.baseUrl.trim(),
+		managed: true,
+		nativeOverride: true,
+		clientHeaderProfile: "recommended",
+		models: [],
+	};
+	const apiKey = draft.apiKey.trim();
+	if (apiKey) next.apiKey = apiKey;
+	if (draft.authHeader) next.authHeader = draft.authHeader;
+	return next;
 }
 
 export function upsertProviderInDocument(

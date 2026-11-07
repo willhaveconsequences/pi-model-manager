@@ -499,7 +499,13 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 						const rowLabel = options.formatRow?.(row, Math.max(0, contentWidth - visibleWidth(prefix)), theme) ?? row.label;
 						const rowText = truncateToWidth(`${prefix}${rowLabel}`, contentWidth);
 						// [喵喵喵]: 选中行用背景色而不是整行前景色，列内的语义色才不会被抹平。
-						const styledRow = selected ? theme.bg("selectedBg", padToVisibleWidth(rowText, contentWidth)) : rowText;
+						// 滚动时本行会追加右侧滚动条：所有行必须补满到内容宽度，否则条形紧贴标签尾部，
+						// 且不同行标签长短不一，滚动条会不在同一垂直线上（长列表下尤为明显）。
+						const styledRow = selected
+							? theme.bg("selectedBg", padToVisibleWidth(rowText, contentWidth))
+							: scrolling
+								? padToVisibleWidth(rowText, contentWidth)
+								: rowText;
 						bodyLines.push(scrolling
 							? `${styledRow} ${theme.fg("borderMuted", getScrollbarGlyph(offset, viewportRows, windowStart, activeRows.length))}`
 							: styledRow);

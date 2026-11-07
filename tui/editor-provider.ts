@@ -85,6 +85,15 @@ function buildRows(
 	draft: ProviderDraft,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 ): FieldRow[] {
+	if (draft.nativeOverride) {
+		return [
+			{ id: "providerId", label: t("内置接入 ID"), value: draft.providerId },
+			{ id: "providerName", label: t("显示名"), value: draft.providerName.trim() || t("跟随内置") },
+			{ id: "baseUrl", label: "Base URL", value: draft.baseUrl.trim() ? redactUrlForDisplay(draft.baseUrl) : t("跟随内置默认") },
+			{ id: "apiKey", label: "API key", value: maskSecret(draft.apiKey) },
+			{ id: "authHeader", label: t("认证头"), value: draft.authHeader ? "Bearer" : t("默认") },
+		];
+	}
 	const inlineCustomProfile = draft.clientHeaderProfile === "custom"
 		&& !draft.requestHeaderProfileId
 		&& hasStringRecordEntries(draft.customClientHeaders);
@@ -282,16 +291,27 @@ async function editField(
 	}
 	if (fieldId === "apiKey") {
 		const currentLabel = draft.apiKey ? maskSecret(draft.apiKey) : t("<空>");
-		const value = await ctx.ui.input(t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空清除）", { current: currentLabel }), "");
+		// 覆写模式下留空同样表示“不覆盖，用 pi 内置认证”。
+		const prompt = draft.nativeOverride
+			? t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空清除）", { current: currentLabel })
+			: t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空保持原值）", { current: currentLabel });
+		const value = await ctx.ui.input(prompt, "");
 		if (value === undefined) return;
 		draft.apiKey = value.trim();
 		return;
 	}
 	// [喵喵喵]: baseUrl 是唯一走通用文本输入的字段，显式列出才能保持 draft 的类型检查。
 	if (fieldId !== "baseUrl") return;
-	const value = await ctx.ui.input(t("Base URL（http/https）（当前：{current}，留空保持原值）", { current: draft.baseUrl || t("<空>") }), draft.baseUrl);
+	const value = await ctx.ui.input(draft.nativeOverride
+		? t("内置覆写 Base URL（http/https）（当前：{current}，留空还原为跟随内置默认）", { current: draft.baseUrl || t("<空>") })
+		: t("Base URL（http/https）（当前：{current}，留空保持原值）", { current: draft.baseUrl || t("<空>") }), draft.baseUrl);
 	if (value === undefined) return;
 	const trimmed = value.trim();
+	if (draft.nativeOverride) {
+		// 覆写模式下留空表示还原为“跟随内置默认地址”。
+		draft.baseUrl = "";
+		return;
+	}
 	if (!trimmed) return;
 	// [喵喵喵]: 当场校验并归一化成 SDK 可直接使用的根地址；若输入有误通过通知友好提示，避免未捕获异常导致 TUI 闪退丢失草稿
 	try {
@@ -324,15 +344,24 @@ export async function editProvider(
 		const rows = buildRows(draft, requestHeaderProfiles);
 		const menuRows = toMenuRows(rows);
 		const getSummaryLines = (): string[] => {
-			const summaryLines = [
-				`API ${formatApiShort(draft.api)} · ${t("请求头")} ${describeProfile(draft.clientHeaderProfile, draft.api, draft.requestHeaderProfileId, requestHeaderProfiles)}`,
-				t("接入 ID 必填，且不能与已有或 pi 内置接入重复"),
-				t("Ctrl+S 保存并同步 models.json；不切换当前会话模型"),
-			];
-			if (draft.api === "openai-completions") {
+			const summaryLines = draft.nativeOverride
+				? [
+					`API ${formatApiShort(draft.api)}`
+						+ (draft.builtinBaseUrlHint
+							? ` · ${t("内置默认")}: ${redactUrlForDisplay(draft.builtinBaseUrlHint)}`
+							: ""),
+					t("内置接入覆写：仅覆盖上面填写的字段；其余定义、认证与模型清单继续使用 pi 内置接入"),
+					t("Ctrl+S 保存并在 models.json 写入局部覆写节点；模型清单不可在此编辑"),
+				]
+				: [
+					`API ${formatApiShort(draft.api)} · ${t("请求头")} ${describeProfile(draft.clientHeaderProfile, draft.api, draft.requestHeaderProfileId, requestHeaderProfiles)}`,
+					t("接入 ID 必填，且不能与已有或 pi 内置接入重复"),
+					t("Ctrl+S 保存并同步 models.json；不切换当前会话模型"),
+				];
+			if (!draft.nativeOverride && draft.api === "openai-completions") {
 				summaryLines.push(getOpenAIChatCompatibilityModeHint(getOpenAIChatCompatibilityMode(draft)));
 			}
-			if (draft.api === "openai-responses") {
+			if (!draft.nativeOverride && draft.api === "openai-responses") {
 				summaryLines.push(getOpenAIResponsesStreamCompletionModeHint(getOpenAIResponsesStreamCompletionMode(draft)));
 				summaryLines.push(draft.openAIResponsesAutoRecoveryEnabled
 					? t("跨资源自动恢复已开启：仅在指定错误后剥离旧 item ID 并重试一次；完整保留思维链，每次提示结果。")

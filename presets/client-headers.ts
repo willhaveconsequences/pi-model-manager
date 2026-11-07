@@ -113,7 +113,8 @@ export function getClientHeadersForProfile(
 export function getClientHeaderProfileDisplay(profile: ClientHeaderProfileId, api: ApiKind): string {
 	const resolved = resolveClientHeaderProfile(profile, api);
 	if (profile === "recommended") {
-		return `${getClientHeaderProfileLabel("recommended")} → ${getClientHeaderProfileLabel(resolved)}`;
+		// [喵喵喵]: 与表格单元格对齐，禁用歧义宽度的 U+2192，避免 CJK 字体全宽字形压字。
+		return `${getClientHeaderProfileLabel("recommended")} -> ${getClientHeaderProfileLabel(resolved)}`;
 	}
 	return getClientHeaderProfileLabel(profile);
 }

@@ -398,7 +398,8 @@ function getFullModelId(providerId: string, modelId: string): string {
 
 function extractProviderMetadata(provider: StoredProvider): ProviderMetadata {
 	const metadata: ProviderMetadata = {};
-	if (toNativeBaseUrl(provider.api, provider.baseUrl).anthropicApiRoot) metadata.anthropicApiRoot = true;
+	// [喵喵喵]: 覆写视图允许空 baseUrl（“不覆盖，跟随内置”），避免空地址进入 URL 解析。
+	if (provider.baseUrl && toNativeBaseUrl(provider.api, provider.baseUrl).anthropicApiRoot) metadata.anthropicApiRoot = true;
 	if (provider.clientHeaderProfile !== "recommended") metadata.clientHeaderProfile = provider.clientHeaderProfile;
 	if (provider.clientHeaderProfile === "custom" && provider.requestHeaderProfileId) {
 		metadata.clientHeaderProfile = "custom";

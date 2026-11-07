@@ -93,6 +93,8 @@ export interface StoredProvider {
 	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
 	/** 仅在跨资源、item ID 或加密状态错误后剥离旧 item ID 并重试一次，完整保留推理内容。 */
 	openAIResponsesAutoRecoveryEnabled?: boolean;
+	/** 内置接入覆写视图：models.json 局部节点，模型清单与认证仍由 pi 内置目录管理。 */
+	nativeOverride?: boolean;
 	models: StoredModel[];
 }
 
@@ -111,6 +113,10 @@ export interface ProviderDraft {
 	providerId: string;
 	providerName: string;
 	api: ApiKind;
+	/** 内置接入覆写草稿：只允许覆盖名称/地址/key/认证头，模型清单不可编辑。 */
+	nativeOverride?: boolean;
+	/** 展示用提示：pi 内置默认 API 根地址（覆写编辑器摘要行使用）。 */
+	builtinBaseUrlHint?: string;
 	/** Chat Completions 系统提示词兼容模式；standard 保持 Pi 默认判断。 */
 	openAIChatCompatibilityMode?: OpenAIChatCompatibilityMode;
 	/** Responses 流结束模式；terminal-event 不等待上游关闭连接。 */

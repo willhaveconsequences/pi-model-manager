@@ -21,6 +21,7 @@ interface BuiltinCatalogModel {
 interface BuiltinCatalog {
 	models: readonly BuiltinCatalogModel[];
 	providerIds: ReadonlySet<string>;
+	providerNames: ReadonlyMap<string, string>;
 }
 
 const SUPPORTED_API_KINDS = new Set<ApiKind>([
@@ -60,6 +61,7 @@ function getBuiltinCatalog(): Promise<BuiltinCatalog> {
 		})),
 		// [喵喵喵]: 聊天目录不包含仅提供生图或分类器的接入；保护 ID 必须取完整接入目录。
 		providerIds: new Set(runtime.getProviders().map((provider) => provider.id)),
+		providerNames: new Map(runtime.getProviders().map((provider) => [provider.id, provider.name])),
 	}));
 
 	return builtinCatalogPromise;
@@ -67,6 +69,10 @@ function getBuiltinCatalog(): Promise<BuiltinCatalog> {
 
 export async function getBuiltinProviderIds(): Promise<ReadonlySet<string>> {
 	return (await getBuiltinCatalog()).providerIds;
+}
+
+export async function getBuiltinProviderName(providerId: string): Promise<string | undefined> {
+	return (await getBuiltinCatalog()).providerNames.get(providerId);
 }
 
 export async function isBuiltinProviderId(providerId: string): Promise<boolean> {

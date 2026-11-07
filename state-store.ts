@@ -22,6 +22,9 @@ import {
 	stripManagedClientHeaders,
 	resolveProviderCustomHeaders,
 } from "./presets/client-headers.ts";
+import {
+	getProviderNativeOverrideFields,
+} from "./models-json-manager.ts";
 import { normalizeThinkingLevelMap } from "./presets/thinking.ts";
 import { fromNativeBaseUrl, resolveRuntimeBaseUrl, toNativeBaseUrl } from "./runtime-base-url.ts";
 import {
@@ -176,6 +179,36 @@ function buildStoredModelFromModelsJson(
 	return stored;
 }
 
+function buildNativeOverrideProviderFromModelsJson(
+	providerId: string,
+	entry: ModelsJsonProviderEntry,
+	metadata: MetadataDocument,
+	builtinDefaults: { api?: ApiKind; baseUrl?: string } | undefined,
+): StoredProvider | undefined {
+	// [喵喵喵]: 覆写视图只呈现插件自己写入的局部节点；双重所有权：state.json managedProviderIds + 节点 nativeOverride 标记。
+	if (builtinDefaults === undefined) return undefined;
+	if (!metadata.managedProviderIds.includes(providerId)) return undefined;
+	const api = asApiKind(entry.api) ?? builtinDefaults.api;
+	if (!api) return undefined;
+	const providerMetadata = metadata.providers[providerId];
+	const provider: StoredProvider = {
+		name: entry.name || providerId,
+		api,
+		// 空 baseUrl 表示“不覆盖，跟随 pi 内置默认地址”。
+		baseUrl: entry.baseUrl
+			? fromNativeBaseUrl(api, entry.baseUrl, providerMetadata?.anthropicApiRoot, metadata.version < 5)
+			: "",
+		managed: true,
+		nativeOverride: true,
+		clientHeaderProfile: "recommended",
+		models: [],
+	};
+	if (entry.apiKey) provider.apiKey = entry.apiKey;
+	if (entry.authHeader !== undefined) provider.authHeader = entry.authHeader;
+	if (entry.headers !== undefined) provider.headers = cloneJson(entry.headers);
+	return provider;
+}
+
 async function buildStoredProviderFromModelsJson(
 	providerId: string,
 	entry: ModelsJsonProviderEntry,
@@ -183,7 +216,15 @@ async function buildStoredProviderFromModelsJson(
 	requirePluginManagedProviderMarker: boolean,
 ): Promise<StoredProvider | undefined> {
 	const rawModels = entry.models ?? [];
-	if (rawModels.length === 0) return undefined;
+	if (rawModels.length === 0) {
+		if (getProviderNativeOverrideFields(entry) === undefined) return undefined;
+		return buildNativeOverrideProviderFromModelsJson(
+			providerId,
+			entry,
+			metadata,
+			await getBuiltinProviderDefaults(providerId),
+		);
+	}
 
 	const firstModel = rawModels[0];
 	const builtInDefaults = await getBuiltinProviderDefaults(providerId);

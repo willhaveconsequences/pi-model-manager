@@ -23,6 +23,7 @@ import {
 import {
 	createModelDraftForStoredProvider,
 	createModelDraftFromStoredModel,
+	createNativeOverrideProviderDraft,
 	createProviderDraft,
 	createProviderDraftFromStored,
 	getModelFullId,
@@ -30,10 +31,11 @@ import {
 	getProviderDisplayName,
 	upsertProviderInDocument,
 	validateModelDraft,
+	validateNativeOverrideDraft,
 	validateProviderDraft,
 } from "../state-document.ts";
 import { readState } from "../state-store.ts";
-import { getBuiltinProviderIds } from "../builtin-model-catalog.ts";
+import { getBuiltinProviderDefaults, getBuiltinProviderIds, getBuiltinProviderName } from "../builtin-model-catalog.ts";
 import type { StateDocument, StoredModel, StoredProvider } from "../types.ts";
 import { editModel } from "./editor-model.ts";
 import { editProvider } from "./editor-provider.ts";
@@ -67,7 +69,8 @@ interface ProviderMenuRow {
 
 function buildRows(document: StateDocument, builtInProviderIds: ReadonlySet<string>): DashboardRow[] {
 	return Object.keys(document.providers)
-		.filter((providerId) => !builtInProviderIds.has(providerId))
+		// 内置覆写视图同样入列；其余内置目录节点保持不可见。
+		.filter((providerId) => !builtInProviderIds.has(providerId) || document.providers[providerId]!.nativeOverride === true)
 		.sort((a, b) => a.localeCompare(b))
 		.map((providerId) => {
 			const provider = document.providers[providerId]!;
@@ -127,7 +130,10 @@ async function saveProviderDraft(
 ): Promise<boolean> {
 	const state = await readState();
 	const builtInIds = await getBuiltinProviderIds();
-	const errors = validateProviderDraft(draft, state, builtInIds, oldProviderId);
+	// 内置覆写没有“Base URL 必填/重命名检查”语义，使用独立校验。
+	const errors = draft.nativeOverride
+		? validateNativeOverrideDraft(draft)
+		: validateProviderDraft(draft, state, builtInIds, oldProviderId);
 	if (errors.length > 0) {
 		notifyValidationErrors(ctx, t("接入配置无效"), errors);
 		return false;
@@ -196,6 +202,20 @@ async function saveNewProviderAndModelDraft(
 // ========== delete 流程 ==========
 
 async function deleteProvider(pi: ExtensionAPI, ctx: ExtensionCommandContext, providerId: string, provider: StoredProvider): Promise<boolean> {
+	if (provider.nativeOverride) {
+		const ok = await ctx.ui.confirm(
+			t("取消内置接入覆写 {providerId}", { providerId }),
+			t("将从 models.json 移除插件写入的覆写字段；该内置接入继续以 pi 内置定义工作。"),
+		);
+		if (!ok) return false;
+		try {
+			await deleteProviderConfiguration(pi, ctx, providerId, provider);
+			return true;
+		} catch (error) {
+			ctx.ui.notify(t("取消覆写失败：{error}", { error: formatUnknownError(error) }), "error");
+			return false;
+		}
+	}
 	const ok = await ctx.ui.confirm(
 		t("删除接入 {providerId}", { providerId }),
 		t("将删除 {name} 下全部 {count} 个模型。", { name: getProviderDisplayName(providerId, provider), count: provider.models.length }),
@@ -227,6 +247,78 @@ async function deleteModel(pi: ExtensionAPI, ctx: ExtensionCommandContext, provi
 		ctx.ui.notify(t("删除失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
+}
+
+// ========== 内置接入覆写流程 ==========
+
+async function editBuiltInOverride(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	draft: ReturnType<typeof createProviderDraft>,
+): Promise<boolean> {
+	// [喵喵喵]: 保存失败时保留草稿继续编辑
+	while (true) {
+		const outcome = await editProvider(ctx, draft, t("覆写内置接入 {providerId}", { providerId: draft.providerId }), {});
+		if (outcome.action !== "save") return false;
+		if (await saveProviderDraft(pi, ctx, outcome.draft, outcome.draft.providerId)) return true;
+	}
+}
+
+async function editOverrideStoredProvider(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	providerId: string,
+	stored: StoredProvider,
+): Promise<boolean> {
+	const draft = createProviderDraftFromStored(providerId, stored);
+	draft.providerId = providerId;
+	const defaults = await getBuiltinProviderDefaults(providerId);
+	if (defaults?.baseUrl) draft.builtinBaseUrlHint = defaults.baseUrl;
+	return editBuiltInOverride(pi, ctx, draft);
+}
+
+async function createBuiltinOverride(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<boolean> {
+	const state = await readState();
+	const builtInIds = [...(await getBuiltinProviderIds())].sort((a, b) => a.localeCompare(b));
+	if (builtInIds.length === 0) {
+		ctx.ui.notify(t("pi 内置接入目录不可用，暂无法覆写内置接入。"), "warning");
+		return false;
+	}
+	const choices: { id: string; label: string; authed: boolean; hasOverride: boolean; name: string }[] = [];
+	for (const providerId of builtInIds) {
+		const name = (await getBuiltinProviderName(providerId)) ?? providerId;
+		const hasOverride = state.providers[providerId]?.nativeOverride === true;
+		// [喵喵喵]: 以当前 credentials（env/auth.json）判断内置接入是否已可用，已可用的排前面并提供标识。
+		let authed = false;
+		try {
+			authed = ctx.modelRegistry.getProviderAuthStatus(providerId).configured === true;
+		} catch {
+			authed = false;
+		}
+		const base = `${name} (${providerId})`;
+		const tags = [
+			authed ? t("已连接") : "",
+			hasOverride ? t("已有覆写") : "",
+		].filter(Boolean).join(" · ");
+		choices.push({ id: providerId, label: tags ? `${base} · ${tags}` : base, authed, hasOverride, name });
+	}
+	choices.sort((a, b) => Number(b.authed) - Number(a.authed)
+		|| Number(b.hasOverride) - Number(a.hasOverride)
+		|| a.name.localeCompare(b.name));
+	// 无“当前选择”语义：新建覆写时不标 ● 当前，避免首行被误标。
+	const choice = await showOptionPicker(ctx, t("选择内置接入进行覆写"), choices, "");
+	if (!choice) return false;
+	const providerId = choice.id;
+	const storedOverride = state.providers[providerId]?.nativeOverride
+		? state.providers[providerId]!
+		: undefined;
+	if (storedOverride) return editOverrideStoredProvider(pi, ctx, providerId, storedOverride);
+	const defaults = await getBuiltinProviderDefaults(providerId);
+	if (!defaults?.api) {
+		ctx.ui.notify(t("pi 内置目录中缺少该接入的默认协议信息，暂无法覆写：{providerId}", { providerId }), "warning");
+		return false;
+	}
+	return editBuiltInOverride(pi, ctx, createNativeOverrideProviderDraft(providerId, defaults.api, defaults.baseUrl));
 }
 
 // ========== 子菜单 ==========
@@ -376,7 +468,7 @@ async function createProviderAndModel(pi: ExtensionAPI, ctx: ExtensionCommandCon
 
 // ========== 入口 ==========
 
-type DashboardShortcut = "new-provider" | "header-profiles" | "delete-provider" | "language";
+type DashboardShortcut = "new-provider" | "edit-builtin" | "header-profiles" | "delete-provider" | "language";
 
 export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
 	const cursor: MenuCursor = { index: 0 };
@@ -399,6 +491,7 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 			cursor,
 			[
 				{ input: "n", shortcut: "new-provider" },
+				{ input: "b", shortcut: "edit-builtin" },
 				{ input: "h", shortcut: "header-profiles" },
 				{ input: "d", shortcut: "delete-provider" },
 				{ input: "l", shortcut: "language" },
@@ -429,17 +522,19 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 					{ key: "↑↓", label: t("选择") },
 					{ key: "Enter", label: t("进入") },
 					{ key: "N", label: t("新建接入") },
+					{ key: "B", label: t("内置接入") },
 					{ key: "D", label: t("删除接入") },
 					{ key: "H", label: t("请求头管理") },
 					{ key: "L", label: "语言 / Language" },
 					{ key: "Esc", label: t("退出") },
 				],
-				emptyLabel: t("暂无自定义接入；按 n 新建"),
+				emptyLabel: t("暂无自定义接入；按 n 新建，按 b 覆写内置接入"),
 			},
 		);
 		if (action.type === "cancel") return;
 		if (action.type === "shortcut") {
 			if (action.shortcut === "new-provider") await createProviderAndModel(pi, ctx);
+			if (action.shortcut === "edit-builtin") await createBuiltinOverride(pi, ctx);
 			if (action.shortcut === "header-profiles") await runHeaderProfilesPanel(pi, ctx);
 			if (action.shortcut === "language") await selectUiLanguage(ctx);
 			if (action.shortcut === "delete-provider") {
@@ -456,6 +551,11 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 		const provider = state.providers[row.providerId];
 		if (!provider) {
 			ctx.ui.notify(t("接入配置已不存在：{providerId}", { providerId: row.providerId }), "warning");
+			continue;
+		}
+		// 内置覆写没有模型菜单，直接进入覆写编辑器。
+		if (provider.nativeOverride) {
+			await editOverrideStoredProvider(pi, ctx, row.providerId, provider);
 			continue;
 		}
 		await showProviderMenu(pi, ctx, row.providerId);

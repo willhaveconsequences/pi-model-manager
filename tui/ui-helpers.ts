@@ -84,12 +84,21 @@ function getAuthKind(apiKey: string | undefined): string {
 }
 
 function getProviderStatus(provider: StoredProvider): string {
+	// 覆写接入未填 key 时用 pi 内置认证，不应报“待检查”。
+	if (provider.nativeOverride) return "ready";
 	const auth = getAuthKind(provider.apiKey);
 	return auth === "miss" || auth === "auth?" ? "check" : "ready";
 }
 
 function getProviderProxyText(provider: StoredProvider): string {
+	if (provider.nativeOverride) return "direct";
 	return provider.httpProxyEnabled ? "proxy" : "direct";
+}
+
+/** 覆写接入不接管认证：未填 key 时请求由 pi 内置认证（env / auth.json）解析。 */
+function getProviderAuthCell(provider: StoredProvider): string {
+	if (!provider.nativeOverride) return getAuthKind(provider.apiKey);
+	return provider.apiKey ? getAuthKind(provider.apiKey) : "pi";
 }
 
 function formatProviderHeaderProfile(
@@ -98,7 +107,8 @@ function formatProviderHeaderProfile(
 ): string {
 	if (provider.clientHeaderProfile === "recommended") {
 		const resolved = resolveClientHeaderProfile(provider.clientHeaderProfile, provider.api);
-		return `Auto→${getClientHeaderProfileLabel(resolved)}`;
+		// [喵喵喵]: 固定宽度列内禁用 U+2192（East Asian Ambiguous）：CJK 回退字体全宽字形会溢出压到后续字符。
+		return `Auto->${getClientHeaderProfileLabel(resolved)}`;
 	}
 	if (provider.clientHeaderProfile === "disabled") return "Off";
 	if (provider.clientHeaderProfile === "custom") {
@@ -150,11 +160,11 @@ function getProviderConsoleColumns(cells: ProviderConsoleCells, availableWidth: 
 	const provider: FixedColumn = { text: cells.provider, width: Math.min(nameWidth, PROVIDER_NAME_COLUMN_LIMIT) };
 	const api: FixedColumn = { text: cells.api, width: 9 };
 	const models: FixedColumn = { text: cells.models, width: 6, align: "right" };
-	const headers: FixedColumn = { text: cells.headers, width: 15, color: cells.headers === "Off" ? "dim" : undefined };
+	const headers: FixedColumn = { text: cells.headers, width: 16, color: cells.headers === "Off" ? "dim" : undefined };
 	const proxy: FixedColumn = { text: cells.proxy, width: 6, color: cells.proxy === "proxy" ? "accent" : "dim" };
 	const auth: FixedColumn = { text: cells.auth, width: 6, color: getAuthColor(cells.auth) };
 	const status: FixedColumn = { text: cells.status, width: 5, color: cells.status === "ready" ? "success" : "warning" };
-	if (availableWidth >= 81) return [provider, api, models, headers, proxy, auth, status];
+	if (availableWidth >= 82) return [provider, api, models, headers, proxy, auth, status];
 	if (availableWidth >= 64) return [provider, api, models, proxy, auth, status];
 	if (availableWidth >= 48) return [provider, api, models, status];
 	return [{ ...provider, width: Math.max(10, availableWidth - 26) }, api, models, status];
@@ -178,6 +188,17 @@ export function formatProviderConsoleRow(
 	availableWidth = 81,
 	options: ProviderTableOptions = {},
 ): string {
+	if (provider.nativeOverride) {
+		return joinFixedColumns(getProviderConsoleColumns({
+			provider: getProviderDisplayLabel(providerId, provider),
+			api: formatApiShort(provider.api),
+			models: "—",
+			headers: t("内置覆写"),
+			proxy: getProviderProxyText(provider),
+			auth: getProviderAuthCell(provider),
+			status: getProviderStatus(provider),
+		}, availableWidth, options.nameWidth ?? PROVIDER_NAME_COLUMN_LIMIT), options.theme);
+	}
 	return joinFixedColumns(getProviderConsoleColumns({
 		provider: getProviderDisplayLabel(providerId, provider),
 		api: formatApiShort(provider.api),
@@ -208,6 +229,22 @@ export function formatProviderDetailLines(
 	options: ProviderTableOptions = {},
 ): string[] {
 	const { theme, requestHeaderProfiles = {} } = options;
+	if (provider.nativeOverride) {
+		const overridden = [
+			provider.name && provider.name !== providerId ? t("名称") : undefined,
+			provider.baseUrl ? "Base URL" : undefined,
+			provider.apiKey ? "API key" : undefined,
+			provider.authHeader ? t("认证头") : undefined,
+		].filter((field): field is string => Boolean(field));
+		return [
+			formatDetailTitle(getProviderDisplayLabel(providerId, provider), theme),
+			formatDetailField("endpoint", provider.baseUrl ? redactUrlForDisplay(provider.baseUrl) : t("跟随 pi 内置默认"), theme),
+			formatDetailField("proxy", "direct", theme),
+			formatDetailField("api", `${formatApiShort(provider.api)} · auth ${getProviderAuthCell(provider)}`, theme),
+			formatDetailField("override", overridden.join(", ") || t("无"), theme),
+			formatDetailField("models", t("模型清单由 pi 内置目录管理"), theme),
+		];
+	}
 	const modelIds = provider.models.map((model) => model.id).join(", ") || t("<无模型>");
 	return [
 		formatDetailTitle(getProviderDisplayLabel(providerId, provider), theme),

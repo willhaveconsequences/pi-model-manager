@@ -15,15 +15,18 @@ import { hashTextContent, readStableTextFileSnapshot } from "./file-snapshot.ts"
 import { t } from "./i18n.ts";
 import {
 	MODELS_JSON_PATH,
+	applyNativeOverrideInDoc,
 	markManagedProvidersInDoc,
 	readModelsJsonSnapshot,
 	renameModelInDoc,
 	renameProviderInDoc,
+	stripNativeOverrideInDoc,
 	type ModelsJsonDocument,
 } from "./models-json-manager.ts";
 import {
 	buildModelsDocumentWithSynchronizedModel,
 	buildModelsDocumentWithoutModel,
+	buildNativeOverrideProviderPatch,
 	buildSynchronizedModelsDocument,
 	migrateManagedBaseUrls,
 } from "./models-json-sync.ts";
@@ -42,6 +45,8 @@ interface PreparedConfigurationChange {
 	document: StateDocument;
 	changedProviderIds: string[];
 	removedProviderIds: string[];
+	/** 覆写型变更可以直接合并进已存在的 models.json 节点，不触发“已存在接入”保护。 */
+	mergeProviderIds?: string[];
 }
 
 export type PrepareConfigurationChange = (latest: StateDocument) => PreparedConfigurationChange;
@@ -232,10 +237,12 @@ async function persistConfigurationInsideLock(
 	const migratedSource = metadataSnapshot.metadata.version < 5
 		? migrateManagedBaseUrls(latest, sourceWithLegacyProviders)
 		: sourceWithLegacyProviders;
-	const existingProviderIds = new Set(Object.keys(latest.providers));
 	const change = prepare(latest);
+	const existingProviderIds = new Set(Object.keys(latest.providers));
+	const mergeProviderIds = new Set(change.mergeProviderIds ?? []);
 	// [喵喵喵]: 原生扩展可只保存覆盖项而不列 models；目录过滤掉的节点仍占用 ID，不允许新建时覆盖。
 	for (const providerId of change.changedProviderIds) {
+		if (mergeProviderIds.has(providerId)) continue;
 		if (!existingProviderIds.has(providerId) && Object.hasOwn(modelsSnapshot.document.providers, providerId)) {
 			throw new Error(t("models.json 中已存在接入：{providerId}", { providerId }));
 		}
@@ -274,7 +281,9 @@ async function refreshRegistryAfterPersistence(
 		throw new Error(t("models.json/state.json 未完整保存：{error}", { error: formatUnknownError(error) }));
 	}
 	try {
-		await ctx.modelRegistry.refresh();
+		// [喵喵喵]: 这里只让 registry 重读 models.json；允许网络时会顺带刷新模型目录，
+		// 面板流程等的是外部请求，网络一慢整个 Pi 主循环就卡在命令上（再输入 /model-manager 毫无反应）。
+		await ctx.modelRegistry.refresh({ allowNetwork: false });
 	} catch (error) {
 		throw new Error(t("models.json/state.json 已写入，但当前会话 registry 重载失败：{error}。可执行 /reload 重试。", { error: formatUnknownError(error) }));
 	}
@@ -293,6 +302,30 @@ export async function persistManagedConfiguration(
 			change.removedProviderIds,
 			change.changedProviderIds,
 		),
+	));
+}
+
+/** 内置接入覆写：models.json 只写局部节点，不进行整盘托管同步。 */
+export async function persistNativeOverrideConfiguration(
+	ctx: RegistryRefreshContext,
+	prepare: PrepareConfigurationChange,
+): Promise<StateDocument> {
+	return refreshRegistryAfterPersistence(ctx, () => persistConfigurationInsideLock(
+		prepare,
+		(source, change) => {
+			let next = source;
+			for (const providerId of change.changedProviderIds) {
+				const provider = change.document.providers[providerId];
+				if (!provider?.nativeOverride) {
+					throw new Error(t("内置接入覆写状态缺失：{providerId}", { providerId }));
+				}
+				next = applyNativeOverrideInDoc(next, providerId, buildNativeOverrideProviderPatch(providerId, provider));
+			}
+			for (const providerId of change.removedProviderIds) {
+				next = stripNativeOverrideInDoc(next, providerId);
+			}
+			return next;
+		},
 	));
 }
 

@@ -25,6 +25,7 @@ import {
 	markProviderEntryAsPluginManaged,
 	setModelInDoc,
 	setProviderInDoc,
+	type NativeOverrideProviderPatch,
 	type ModelsJsonDocument,
 	type ModelsJsonModelEntry,
 	type ModelsJsonProviderEntry,
@@ -166,10 +167,27 @@ export function buildSynchronizedModelsDocument(
 	return nextDocument;
 }
 
+/** 把覆写视图记录转成 models.json 补丁：地址转原生 SDK 形式，未填写的字段缺省。 */
+export function buildNativeOverrideProviderPatch(
+	providerId: string,
+	provider: StoredProvider,
+): NativeOverrideProviderPatch {
+	const patch: NativeOverrideProviderPatch = {};
+	const name = provider.name?.trim();
+	if (name && name !== providerId) patch.name = name;
+	const baseUrl = provider.baseUrl?.trim();
+	if (baseUrl) patch.baseUrl = toNativeBaseUrl(provider.api, baseUrl).baseUrl;
+	const apiKey = provider.apiKey?.trim();
+	if (apiKey) patch.apiKey = apiKey;
+	if (provider.authHeader === true) patch.authHeader = true;
+	return patch;
+}
+
 /** 版本升级只转换地址字段，保留源文件中的模型、兼容参数及其他扩展字段。 */
 export function migrateManagedBaseUrls(document: StateDocument, source: ModelsJsonDocument): ModelsJsonDocument {
 	let result = source;
 	for (const [providerId, provider] of Object.entries(document.providers)) {
+		if (provider.nativeOverride) continue;
 		const entry = source.providers[providerId];
 		if (!provider.managed || !entry) continue;
 		if (provider.api !== "anthropic-messages" && !provider.models.some((model) => model.api === "anthropic-messages")) continue;

@@ -12,6 +12,7 @@ import {
 	persistModelConfiguration,
 	persistModelDeletionConfiguration,
 	persistModelRenameConfiguration,
+	persistNativeOverrideConfiguration,
 	persistProviderRenameConfiguration,
 } from "./configuration-persistence.ts";
 import {
@@ -23,7 +24,7 @@ import {
 } from "./models-json-sync.ts";
 import { reconcileProvider, unregisterManagedProvider } from "./provider-registrar.ts";
 import { withModelRescue } from "./rescue.ts";
-import { deleteModelFromDocument, deleteProviderFromDocument, getModelFullId, upsertModelInDocument, upsertProviderInDocument, validateModelDraft, validateProviderDraft } from "./state-document.ts";
+import { deleteModelFromDocument, deleteProviderFromDocument, getModelFullId, upsertModelInDocument, upsertProviderInDocument, validateModelDraft, validateNativeOverrideDraft, validateProviderDraft } from "./state-document.ts";
 import type { StateDocument, StoredProvider } from "./types.ts";
 import type { createModelDraftForStoredProvider, createProviderDraft } from "./state-document.ts";
 
@@ -77,6 +78,26 @@ async function reconcilePersistedProviderRuntime(
 	}
 }
 
+/** 内置接入覆写：只写 models.json 局部节点；不注册动态 provider，不动 enabledModels，不需要救援。 */
+async function saveNativeOverrideConfiguration(
+	ctx: ExtensionCommandContext,
+	draft: ProviderDraft,
+	oldProviderId: string | undefined,
+): Promise<void> {
+	const providerId = draft.providerId.trim();
+	if (oldProviderId && oldProviderId !== providerId) {
+		throw new Error(t("内置接入覆写不支持重命名：{oldProviderId} → {providerId}", { oldProviderId, providerId }));
+	}
+	const prepare = (latest: StateDocument) => {
+		const errors = validateNativeOverrideDraft(draft);
+		if (errors.length > 0) throw new Error(errors.join("\n"));
+		const document = upsertProviderInDocument(latest, undefined, draft);
+		return { document, changedProviderIds: [providerId], removedProviderIds: [], mergeProviderIds: [providerId] };
+	};
+	await persistNativeOverrideConfiguration(ctx, prepare);
+	ctx.ui.notify(t("已保存内置接入覆写 {providerId}（写入 models.json；模型清单仍以 pi 内置为准）", { providerId }), "info");
+}
+
 export async function saveProviderConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
@@ -84,6 +105,10 @@ export async function saveProviderConfiguration(
 	draft: ProviderDraft,
 	oldProviderId: string | undefined,
 ): Promise<void> {
+	if (draft.nativeOverride) {
+		await saveNativeOverrideConfiguration(ctx, draft, oldProviderId);
+		return;
+	}
 	await assertProviderIsEditable(draft.providerId);
 	if (oldProviderId) await assertProviderIsEditable(oldProviderId);
 	const prepare = (latest: StateDocument) => {
@@ -204,8 +229,17 @@ export async function deleteProviderConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	providerId: string,
-	_provider: StoredProvider,
+	provider: StoredProvider,
 ): Promise<void> {
+	if (provider.nativeOverride) {
+		await persistNativeOverrideConfiguration(ctx, (latest) => ({
+			document: deleteProviderFromDocument(latest, providerId),
+			changedProviderIds: [],
+			removedProviderIds: [providerId],
+		}));
+		ctx.ui.notify(t("已取消内置接入覆写 {providerId}，插件写入的覆写字段已从 models.json 还原", { providerId }), "info");
+		return;
+	}
 	await assertProviderIsEditable(providerId);
 	await persistManagedConfiguration(ctx, (latest) => ({
 		document: deleteProviderFromDocument(latest, providerId),

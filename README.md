@@ -19,17 +19,17 @@
 /model-manager
 4 接入 · 5 模型 · 0 内置抓包 · 0 自定义请求头
 
-  接入                API          模型  请求头           代理    认证    状态
-❯ OpenAI (openai)     Responses       2  Auto→Codex       direct  env     ready
-  Claude (claude)     Claude          1  ClaudeCode       direct  env     ready
-  Gemini (gemini)     Gemini          1  Auto→不添加      direct  env     ready
-  Local vLLM (local)  Chat            1  Off              proxy   key     ready
+  接入                API          模型  请求头            代理    认证    状态
+❯ OpenAI (openai)     Responses       2  Auto->Codex       direct  env     ready
+  Claude (claude)     Claude          1  ClaudeCode        direct  env     ready
+  Gemini (gemini)     Gemini          1  Auto->不添加      direct  env     ready
+  Local vLLM (local)  Chat            1  Off               proxy   key     ready
 
 ────────────────────────────────────────────────────────────────────────────────────────
 OpenAI (openai)
   endpoint  https://api.openai.com/v1
   proxy     direct
-  api       Responses · headers Auto→Codex · auth env
+  api       Responses · headers Auto->Codex · auth env
   models    gpt-5.6-sol, gpt-5.6-terra
 
 ↑↓ 选择   Enter 进入   N 新建接入   D 删除接入   H 请求头   Esc 退出   / 搜索
@@ -44,7 +44,7 @@ OpenAI (openai)
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
 /model-manager / OpenAI
-Responses · 2 模型 · headers Auto→Codex · proxy direct · auth env
+Responses · 2 模型 · headers Auto->Codex · proxy direct · auth env
 endpoint  https://api.openai.com/v1
 
   模型 ID         显示名    输入        Thinking   上下文
@@ -60,7 +60,7 @@ endpoint  https://api.openai.com/v1
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
 编辑接入 openai
-API Responses · 请求头 自动推荐（Auto→Codex）
+API Responses · 请求头 自动推荐（Auto->Codex）
 接入 ID 必填，且不能与已有或 pi 内置接入重复
 Ctrl+S 保存并同步 models.json；不切换当前会话模型
 
@@ -72,7 +72,7 @@ Ctrl+S 保存并同步 models.json；不切换当前会话模型
   代理地址        关闭时不使用
   API key         $OPENAI_API_KEY
   认证头          默认
-  请求头          自动推荐（Auto→Codex）
+  请求头          自动推荐（Auto->Codex）
 
 ↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并同步   Esc 返回
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
   Fast mode       ◀ 标准 ▶
   上下文窗口      ◀ 1050000 ▶
   最大输出        ◀ 128000 ▶
-  请求头          跟随接入（Auto→Codex）
+  请求头          跟随接入（Auto->Codex）
 
 ↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并启用   Esc 返回
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -179,9 +179,10 @@ pi install npm:pi-model-manager
 
    | 按键 | 操作 |
    | --- | --- |
-   | `Enter` | 进入所选接入并管理模型 |
+   | `Enter` | 进入所选接入并管理模型；内置覆写接入则直接进入覆写编辑器 |
    | `N` | 新建接入及其第一个模型 |
-   | `D` | 删除所选接入 |
+   | `B` | 选择并覆写 pi 内置接入（局部节点覆盖名称/Base URL/API key/认证头） |
+   | `D` | 删除所选接入；对内置覆写接入则为取消覆写并还原 models.json |
    | `H` | 管理可复用请求头 |
    | `L` | 切换界面语言（简体中文 / English），选择后立即生效并持久保存 |
    | `/` | 搜索当前列表；`Tab` 退出输入但保留过滤，`Esc` 清空 |
@@ -275,7 +276,9 @@ Fast 和 Ultrafast 需要上游、账号及模型支持，可能产生额外费�
 | `~/.pi/agent/models.json` | Pi 原生接入与模型定义；模型配置的唯一权威来源 |
 | `~/.pi/agent/extensions/pi-model-manager/state.json` | 请求头选择、自定义请求头、代理开关、Responses 速度档位和 Anthropic 自定义端点标记等私有元数据 |
 
-扩展只会为明确受管理的 Provider 生成请求头、代理路由和动态注册配置。所有权由 `state.json` 的受管理 ID 与 `models.json` Provider 节点中的 `piModelManager.managed` 标记共同确认，防止已删除的 Provider ID 在日后被同名原生配置复用时遭到插件接管。没有这些所有权信息的原生 Provider 保持未管理，其已有 Header 和未知原生字段不会因保存其它配置而被改写；Pi 内置 Provider 不在本扩展中提供编辑或删除入口。
+扩展只会为明确受管理的 Provider 生成请求头、代理路由和动态注册配置。所有权由 `state.json` 的受管理 ID 与 `models.json` Provider 节点中的 `piModelManager.managed` 标记共同确认，防止已删除的 Provider ID 在日后被同名原生配置复用时遭到插件接管。没有这些所有权信息的原生 Provider 保持未管理，其已有 Header 和未知原生字段不会因保存其它配置而被改写。
+
+Pi 内置 Provider 不做整盘接管：模型清单、认证与 `/login` 流程继续由 Pi 内置目录管理。扩展提供“内置接入覆写”：在编辑器里只覆盖显示名称、Base URL、API key 与认证头，保存时在 `models.json` 写入一个不含 `models` 的局部节点，由 Pi 自行叠加在内置目录之上；覆写所有权记录为节点内的 `piModelManager.nativeOverride` 标记，取消覆写时插件只剥离自己写入的字段，不动节点里的其它内容。覆写接入不注册动态 Provider，也不参与请求头/代理/Responses 兼容等发送层特性。
 
 插件自身的配置写入由跨进程锁串行化，`enabledModels` 还同时遵守 Pi 的 `proper-lockfile` 锁；`models.json` 与 `state.json` 通过事务意图文件在中断后恢复，读取方不会采用事务进行中的半完成组合。外部编辑器不受这些锁约束，因此保存前仍会校验内容签名；检测到外部修改时会取消保存而不是覆盖。
 

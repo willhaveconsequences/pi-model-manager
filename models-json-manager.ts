@@ -74,9 +74,93 @@ export function markManagedProvidersInDoc(
 	for (const providerId of providerIds) {
 		const entry = next.providers[providerId];
 		if (!entry || hasPluginManagedProviderMarker(entry)) continue;
+		// 内置覆写节点使用 nativeOverride 标记（不含 managed），不得在此补 managed:true。
+		if (getProviderNativeOverrideFields(entry) !== undefined) continue;
 		if (next === doc) next = cloneJson(doc);
 		next.providers[providerId] = markProviderEntryAsPluginManaged(entry);
 	}
+	return next;
+}
+
+// ========== 内置接入覆写（局部节点，不带 models，pi 自行叠加在内置目录之上） ==========
+
+export interface NativeOverrideProviderPatch {
+	name?: string;
+	baseUrl?: string;
+	apiKey?: string;
+	authHeader?: boolean;
+}
+
+/**
+ * [喵喵喵]: 覆写节点与整盘托管节点不同，不能带 managed:true —— 用户往覆写节点里手动加 models 后，
+ * 应退回“非插件所有”状态，以免被整盘托管同步误改。
+ */
+export function getProviderNativeOverrideFields(entry: ModelsJsonProviderEntry): readonly string[] | undefined {
+	const metadata = entry[PLUGIN_PROVIDER_METADATA_KEY];
+	if (!isObjectRecord(metadata) || metadata.nativeOverride !== true) return undefined;
+	const fields = metadata.fields;
+	return Array.isArray(fields) ? fields.filter((field): field is string => typeof field === "string") : [];
+}
+
+const NATIVE_OVERRIDE_FIELD_NAMES = ["name", "baseUrl", "apiKey", "authHeader"] as const;
+
+/** 把覆写字段写入 models.json 节点：每个字段非空则写、空则清除，同时记录当前覆写的字段清单。 */
+export function applyNativeOverrideInDoc(
+	doc: ModelsJsonDocument,
+	providerId: string,
+	patch: NativeOverrideProviderPatch,
+): ModelsJsonDocument {
+	const next = cloneJson(doc);
+	const existing = isObjectRecord(next.providers[providerId]) ? next.providers[providerId]! : {};
+	const marker = isObjectRecord(existing[PLUGIN_PROVIDER_METADATA_KEY])
+		? existing[PLUGIN_PROVIDER_METADATA_KEY] as Record<string, unknown>
+		: {};
+	const written: string[] = [];
+	const name = patch.name;
+	if (typeof name === "string" && name.trim()) {
+		existing.name = name.trim();
+		written.push("name");
+	} else delete existing.name;
+	const baseUrl = patch.baseUrl;
+	if (typeof baseUrl === "string" && baseUrl.trim()) {
+		existing.baseUrl = baseUrl.trim();
+		written.push("baseUrl");
+	} else delete existing.baseUrl;
+	const apiKey = patch.apiKey;
+	if (typeof apiKey === "string" && apiKey.trim()) {
+		existing.apiKey = apiKey.trim();
+		written.push("apiKey");
+	} else delete existing.apiKey;
+	if (patch.authHeader === true) {
+		existing.authHeader = true;
+		written.push("authHeader");
+	} else delete existing.authHeader;
+	next.providers[providerId] = {
+		...existing,
+		[PLUGIN_PROVIDER_METADATA_KEY]: { ...marker, nativeOverride: true, fields: written },
+	};
+	return next;
+}
+
+/** 取消覆写：剥离插件写入的覆写字段；节点里仍留有用户其它内容（如 models）则保留节点。 */
+export function stripNativeOverrideInDoc(doc: ModelsJsonDocument, providerId: string): ModelsJsonDocument {
+	const entry = doc.providers[providerId];
+	if (!entry) return doc;
+	if (getProviderNativeOverrideFields(entry) === undefined) return doc;
+	// [喵喵喵]: 与 apply 对称 —— 这 4 个字段一经插件接管即为插件所有，取消时全部还原。
+	const next = cloneJson(doc);
+	const nextEntry = cloneJson(next.providers[providerId]!);
+	for (const field of NATIVE_OVERRIDE_FIELD_NAMES) if (Object.hasOwn(nextEntry, field)) delete nextEntry[field];
+	const marker = nextEntry[PLUGIN_PROVIDER_METADATA_KEY];
+	const restMarker = isObjectRecord(marker) ? cloneJson(marker) as Record<string, unknown> : {};
+	delete restMarker.nativeOverride;
+	delete restMarker.fields;
+	if (Object.keys(restMarker).length > 0) nextEntry[PLUGIN_PROVIDER_METADATA_KEY] = restMarker;
+	else delete nextEntry[PLUGIN_PROVIDER_METADATA_KEY];
+	const removableKeys = new Set<string>([...NATIVE_OVERRIDE_FIELD_NAMES, PLUGIN_PROVIDER_METADATA_KEY]);
+	const remainingKeys = Object.keys(nextEntry).filter((key) => !removableKeys.has(key));
+	if (remainingKeys.length === 0) delete next.providers[providerId];
+	else next.providers[providerId] = nextEntry;
 	return next;
 }
 
