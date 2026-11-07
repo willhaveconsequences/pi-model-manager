@@ -44,11 +44,12 @@ function formatKeepBuiltin(value: number, pristine: number | undefined): string 
 function describeReserve(draft: ModelOverrideDraft): string {
 	const choice = draft.compactionReserve ?? "global";
 	if (choice === "global") {
-		return `${draft.compactionReserveGlobal ?? DEFAULT_COMPACTION_RESERVE_TOKENS} · ${t("全局")}`;
+		// [喵喵喵]: 明确标出"未覆盖"——这个数值是 pi 的全局回落，不是本模型的独立预算。
+		return `${draft.compactionReserveGlobal ?? DEFAULT_COMPACTION_RESERVE_TOKENS} · ${t("全局（未覆盖）")}`;
 	}
 	// auto 和固定值都可能算出同样的 token，标出档位才能区分。
 	if (choice === "auto") return `${resolveAutoCompactionReserve(draft.contextWindow)} · auto`;
-	return String(choice);
+	return `${choice} · ${t("已覆盖")}`;
 }
 
 function describeReserveThreshold(draft: ModelOverrideDraft): string {
@@ -64,29 +65,30 @@ function describeReserveThreshold(draft: ModelOverrideDraft): string {
 function buildRows(draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline): FieldRow[] {
 	const pristineContext = pristine.contextWindow !== undefined ? formatContextWindowShorthand(pristine.contextWindow) : t("未知");
 	const pristineMax = pristine.maxTokens !== undefined ? formatContextWindowShorthand(pristine.maxTokens) : t("未知");
+	// [喵喵喵]: 行序对齐自建模型编辑器的心智：身份 → 命名 → 可见性 → 能力 → 预算。
 	return [
 		{ id: "modelId", label: t("模型 ID"), value: draft.modelId },
-		{ id: "scopedVisible", label: t("显示"), value: draft.scopedHidden ? `${t("隐藏")}（${t("已隐藏")}）` : t("显示"), adjustable: true },
-		{ id: "contextWindow", label: t("上下文窗口"), value: `${formatKeepBuiltin(draft.contextWindow, pristine.contextWindow)}（${t("内置")} ${pristineContext}）` },
-		{ id: "maxTokens", label: t("最大输出"), value: `${formatKeepBuiltin(draft.maxTokens, pristine.maxTokens)}（${t("内置")} ${pristineMax}）` },
-		{
-			id: "reasoning",
-			label: t("推理"),
-			value: `${draft.reasoning ? t("开") : t("关")}（${t("内置")} ${pristine.reasoning ? t("开") : t("关")}）`,
-			adjustable: true,
-		},
-		{
-			id: "compactionReserve",
-			label: t("压缩预留"),
-			value: describeReserve(draft),
-			adjustable: true,
-		},
 		{
 			id: "modelName",
 			label: t("显示名"),
 			value: draft.modelName.trim()
 				? draft.modelName.trim()
 				: (pristine.name && pristine.name !== draft.modelId ? `${t("跟随内置")}（${pristine.name}）` : t("跟随内置")),
+		},
+		{ id: "scopedVisible", label: t("显示"), value: draft.scopedHidden ? `${t("隐藏")}（${t("已隐藏")}）` : t("显示"), adjustable: true },
+		{
+			id: "reasoning",
+			label: t("推理"),
+			value: `${draft.reasoning ? t("开") : t("关")}（${t("内置")} ${pristine.reasoning ? t("开") : t("关")}）`,
+			adjustable: true,
+		},
+		{ id: "contextWindow", label: t("上下文窗口"), value: `${formatKeepBuiltin(draft.contextWindow, pristine.contextWindow)}（${t("内置")} ${pristineContext}）` },
+		{ id: "maxTokens", label: t("最大输出"), value: `${formatKeepBuiltin(draft.maxTokens, pristine.maxTokens)}（${t("内置")} ${pristineMax}）` },
+		{
+			id: "compactionReserve",
+			label: t("压缩预留"),
+			value: describeReserve(draft),
+			adjustable: true,
 		},
 	];
 }

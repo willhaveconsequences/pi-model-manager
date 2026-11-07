@@ -141,6 +141,7 @@ const ENGLISH_MESSAGES = {
 	"尚未接管：首次隐藏某个模型即开启接管": "Not on yet: hiding the first model enables takeover",
 	"当前注册表没有可选模型": "No models in the current registry",
 	"模型覆盖": "Model override",
+	"全局（未覆盖）": "global (not overridden)",
 	"恢复默认": "Restore",
 	"显示/隐藏": "Show/hide",
 	"{fullId} 已设为{visibility}（重启 Pi 后生效）": "{fullId} visibility set to {visibility} (applies after restarting Pi)",
