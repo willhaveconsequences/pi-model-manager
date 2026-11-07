@@ -11,7 +11,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "../common.ts";
-import { DEFAULT_COMPACTION_RESERVE_TOKENS, readCompactionSettings, resolveAutoCompactionReserve } from "../compaction-settings.ts";
+import { DEFAULT_COMPACTION_RESERVE_TOKENS, readCompactionSettings, resolveAutoCompactionReserve, resolveCompactionReserveChoice, saveModelCompactionOverride } from "../compaction-settings.ts";
 import { getUiLanguage, setUiLanguage, t, type UiLanguage } from "../i18n.ts";
 import { writeUiLanguage } from "../ui-language-settings.ts";
 import {
@@ -41,8 +41,15 @@ import {
 } from "../state-document.ts";
 import { readState } from "../state-store.ts";
 import { persistNativeOverrideConfiguration } from "../configuration-persistence.ts";
+import {
+	enableModelForNextPiStart,
+	isModelEnabledPatterns,
+	readEnabledModelStateForNextPiStart,
+	removeModelFromNextPiStart,
+	type EnabledModelState,
+} from "../models-json-sync.ts";
 import { getBuiltinChatModelDefaults, getBuiltinProviderDefaults, getBuiltinProviderIds, getBuiltinProviderName, getBuiltinProviderRawDefaults } from "../builtin-model-catalog.ts";
-import type { ModelDraft, StateDocument, StoredModel, StoredProvider } from "../types.ts";
+import type { CompactionReserveChoice, ModelDraft, StateDocument, StoredModel, StoredProvider } from "../types.ts";
 import { editModel } from "./editor-model.ts";
 import { editModelOverride } from "./editor-model-override.ts";
 import { editProvider } from "./editor-provider.ts";
@@ -260,9 +267,32 @@ async function deleteModel(pi: ExtensionAPI, ctx: ExtensionCommandContext, provi
 
 // ========== 内置接入覆写流程 ==========
 
+async function toggleBuiltinModelHidden(ctx: ExtensionCommandContext, providerId: string, modelId: string): Promise<void> {
+	if (!modelId) {
+		ctx.ui.notify(t("没有可切换的模型。"), "info");
+		return;
+	}
+	const fullModelId = getModelFullId(providerId, modelId);
+	const state = await readEnabledModelStateForNextPiStart(ctx.cwd);
+	if (!state.configured) {
+		ctx.ui.notify(t("Pi 的模型可见性由 enabledModels 白名单控制；当前未配置白名单，无需隐藏（所有模型都可见）。"), "warning");
+		return;
+	}
+	if (!isModelEnabledPatterns(state.patterns, fullModelId)) {
+		const outcome = await enableModelForNextPiStart(ctx.cwd, fullModelId);
+		if (outcome.mode === "updated") ctx.ui.notify(t("已恢复显示 {fullModelId}（下次启动生效）", { fullModelId }), "info");
+		else ctx.ui.notify(t("{fullModelId} 已在白名单内", { fullModelId }), "info");
+		return;
+	}
+	const outcome = await removeModelFromNextPiStart(ctx.cwd, fullModelId);
+	if (outcome.mode === "updated") ctx.ui.notify(t("已隐藏 {fullModelId}（从 enabledModels 白名单移除；下次启动生效）", { fullModelId }), "info");
+	else ctx.ui.notify(t("{fullModelId} 在白名单中以通配模式覆盖，未单独列出；如需隐藏请调整白名单模式。", { fullModelId }), "warning");
+}
+
 function formatOverrideModelLabel(
 	model: { id: string; name?: string; contextWindow?: number; maxTokens?: number },
 	overridden: boolean,
+	hidden: boolean,
 ): string {
 	const context = typeof model.contextWindow === "number"
 		? formatContextWindowShorthand(model.contextWindow)
@@ -271,8 +301,11 @@ function formatOverrideModelLabel(
 		? formatContextWindowShorthand(model.maxTokens)
 		: t("未知");
 	const name = model.name && model.name !== model.id ? ` · ${model.name}` : "";
-	const tag = overridden ? ` · ${t("已覆盖")}` : "";
-	return `${model.id}${name} · ${context} / ${maxOutput}${tag}`;
+	const tags = [
+		overridden ? t("已覆盖") : "",
+		hidden ? t("已隐藏") : "",
+	].filter(Boolean).join(" · ");
+	return `${model.id}${name} · ${context} / ${maxOutput}${tags ? ` · ${tags}` : ""}`;
 }
 
 async function saveNativeOverrideModelOverride(
@@ -316,12 +349,47 @@ async function editNativeOverrideModel(
 	}
 	const draft = createModelOverrideDraft(model.id, pristine, model);
 	draft.providerId = providerId;
+	// [喵喵喵]: 压缩预留不在 modelOverrides 里（它在 Pi settings.json），但同样按 diff 语义保存。
+	const fullModelId = getModelFullId(providerId, model.id);
+	try {
+		const snapshot = await readCompactionSettings(ctx.cwd);
+		draft.compactionReserveGlobal = snapshot.reserveTokens;
+		const reserveOverride = snapshot.modelOverrides[fullModelId]?.reserveTokens;
+		if (typeof reserveOverride === "number") draft.compactionReserve = reserveOverride;
+		else draft.compactionReserve = "global";
+	} catch {
+		draft.compactionReserve = "global";
+		draft.compactionReserveWritable = false;
+	}
+	draft.compactionReserveInitial = draft.compactionReserve;
 	// [喵喵喵]: diff 为空 => 该模型的覆盖会被摘除；保存失败保留草稿继续编辑。
 	while (true) {
 		const outcome = await editModelOverride(ctx, draft, pristine, t("模型覆盖 {providerId}/{modelId}", { providerId, modelId: model.id }));
 		if (outcome.action !== "save") return false;
 		const patch = buildModelOverridePatch(outcome.draft, pristine);
-		if (await saveNativeOverrideModelOverride(ctx, providerId, model.id, patch)) return true;
+		if (!await saveNativeOverrideModelOverride(ctx, providerId, model.id, patch)) continue;
+		await persistNativeOverrideModelCompaction(ctx, draft);
+		return true;
+	}
+}
+
+async function persistNativeOverrideModelCompaction(
+	ctx: ExtensionCommandContext,
+	draft: { modelId: string; providerId: string; compactionReserve?: CompactionReserveChoice; compactionReserveInitial?: CompactionReserveChoice; compactionReserveWritable?: boolean; contextWindow: number },
+): Promise<void> {
+	const initial = draft.compactionReserveInitial ?? "global";
+	const next = draft.compactionReserve ?? initial;
+	if (!draft.compactionReserveWritable || initial === next) return;
+	const fullModelId = getModelFullId(draft.providerId, draft.modelId);
+	try {
+		const reserveTokens = resolveCompactionReserveChoice(next, draft.contextWindow);
+		const changed = await saveModelCompactionOverride({ fullModelId, reserveTokens });
+		if (!changed) return;
+		ctx.ui.notify(reserveTokens === undefined
+			? t("已清除 {fullModelId} 的压缩预留覆盖；/reload 或重启 Pi 后生效", { fullModelId })
+			: t("已设置 {fullModelId} 的压缩预留为 {tokens}；/reload 或重启 Pi 后生效", { fullModelId, tokens: reserveTokens }), "info");
+	} catch (error) {
+		ctx.ui.notify(t("压缩预留写入失败：{error}", { error: formatUnknownError(error) }), "warning");
 	}
 }
 
@@ -331,7 +399,7 @@ async function showNativeOverrideMenu(
 	providerId: string,
 ): Promise<boolean> {
 	const cursor: MenuCursor = { index: 0 };
-	type OverrideMenuShortcut = "edit-provider" | "clear-override";
+	type OverrideMenuShortcut = "edit-provider" | "clear-override" | "toggle-hidden";
 	while (true) {
 		const state = await readState();
 		const provider = state.providers[providerId];
@@ -340,13 +408,23 @@ async function showNativeOverrideMenu(
 			return true;
 		}
 		const overridden = new Set(Object.keys(provider.modelOverrides ?? {}));
+		let enabledModelState: EnabledModelState = { configured: false, scope: undefined, patterns: [] };
+		try {
+			enabledModelState = await readEnabledModelStateForNextPiStart(ctx.cwd);
+		} catch {
+			enabledModelState = { configured: false, scope: undefined, patterns: [] };
+		}
 		const chatModels = [...(ctx.modelRegistry.getModelsOfType("chat", providerId) ?? [])]
 			.sort((a, b) => a.id.localeCompare(b.id));
-		const rows = chatModels.map((model) => ({
-			id: model.id,
-			label: formatOverrideModelLabel(model, overridden.has(model.id)),
-			searchText: `${model.id} ${model.name ?? ""}`,
-		}));
+		const rows = chatModels.map((model) => {
+			const hidden = enabledModelState.configured
+				&& !isModelEnabledPatterns(enabledModelState.patterns, getModelFullId(providerId, model.id));
+			return {
+				id: model.id,
+				label: formatOverrideModelLabel(model, overridden.has(model.id), hidden),
+				searchText: `${model.id} ${model.name ?? ""}`,
+			};
+		});
 		const action = await showPersistentShortcutMenu<OverrideMenuShortcut>(
 			ctx,
 			`/model-manager / ${getProviderDisplayName(providerId, provider)}`,
@@ -356,6 +434,7 @@ async function showNativeOverrideMenu(
 			[
 				{ input: "e", shortcut: "edit-provider" },
 				{ input: "r", shortcut: "clear-override" },
+				{ input: "x", shortcut: "toggle-hidden" },
 			],
 			{
 				summaryLines: [
@@ -367,6 +446,7 @@ async function showNativeOverrideMenu(
 					{ key: "↑↓", label: t("选择") },
 					{ key: "Enter", label: t("模型覆盖") },
 					{ key: "R", label: t("恢复默认") },
+					{ key: "X", label: t("隐藏/显示") },
 					{ key: "E", label: t("编辑接入") },
 					{ key: "Esc", label: t("返回") },
 				],
@@ -381,7 +461,19 @@ async function showNativeOverrideMenu(
 					ctx.ui.notify(t("该模型没有可直接恢复的覆盖。"), "info");
 					continue;
 				}
-				await saveNativeOverrideModelOverride(ctx, providerId, selectedId, {});
+				if (await saveNativeOverrideModelOverride(ctx, providerId, selectedId, {})) {
+					try {
+						if (await saveModelCompactionOverride({ fullModelId: getModelFullId(providerId, selectedId), reserveTokens: undefined })) {
+							ctx.ui.notify(t("已清除该模型的压缩预留覆盖；/reload 或重启 Pi 后生效"), "info");
+						}
+					} catch (error) {
+						ctx.ui.notify(t("压缩预留清理失败：{error}", { error: formatUnknownError(error) }), "warning");
+					}
+				}
+				continue;
+			}
+			if (action.shortcut === "toggle-hidden") {
+				await toggleBuiltinModelHidden(ctx, providerId, rows[cursor.index]?.id ?? "");
 				continue;
 			}
 			if (action.shortcut === "edit-provider") {

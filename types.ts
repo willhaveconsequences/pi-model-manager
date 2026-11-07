@@ -181,6 +181,14 @@ export interface ModelOverrideDraft {
 	contextWindow: number;
 	maxTokens: number;
 	reasoning: boolean;
+	/** 压缩预留档位（存取在 Pi settings.json，不占 modelOverrides）；"global" 表示不写覆盖。 */
+	compactionReserve?: CompactionReserveChoice;
+	/** 草稿构建时的压缩预留档位，用于保存时的 diff。 */
+	compactionReserveInitial?: CompactionReserveChoice;
+	/** Pi settings 的 compaction 可读性；false 时保存跳过压缩预留写入。 */
+	compactionReserveWritable?: boolean;
+	/** 当前全局预留 token（展示用）。 */
+	compactionReserveGlobal?: number;
 	selectedIndex: number;
 }
 

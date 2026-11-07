@@ -265,6 +265,11 @@ function dedupeModelPatterns(patterns: string[]): string[] {
 	return next;
 }
 
+/** 该模型是否在白名单可见（含 thinking 后缀模式匹配）。 */
+export function isModelEnabledPatterns(patterns: readonly string[], fullModelId: string): boolean {
+	return patterns.some((pattern) => enabledModelPatternMatches(splitThinkingSuffix(pattern).base, fullModelId));
+}
+
 function enabledModelPatternMatches(pattern: string, fullModelId: string): boolean {
 	const slashIndex = fullModelId.indexOf("/");
 	const modelId = slashIndex >= 0 ? fullModelId.slice(slashIndex + 1) : fullModelId;
@@ -352,6 +357,36 @@ async function updateEnabledModelsForNextPiStart(
 	const projectUpdate = await updateLockedSettings(join(cwd, CONFIG_DIR_NAME, "settings.json"), "project", update);
 	if (projectUpdate.configured) return projectUpdate.outcome;
 	return (await updateLockedSettings(join(getAgentDir(), "settings.json"), "global", update)).outcome;
+}
+
+export interface EnabledModelState {
+	/** 任一层配置了 enabledModels 数组。 */
+	configured: boolean;
+	/** 与写路径同一选择器：项目层优先，其次全局。 */
+	scope: "project" | "global" | undefined;
+	patterns: string[];
+}
+
+/** 读取（与写路径同一选择器）当前的 enabledModels 状态，只读不加锁。 */
+export async function readEnabledModelStateForNextPiStart(cwd: string): Promise<EnabledModelState> {
+	for (const scope of ["project", "global"] as const) {
+		const path = scope === "project" ? join(cwd, CONFIG_DIR_NAME, "settings.json") : join(getAgentDir(), "settings.json");
+		try {
+			const snapshot = await readStableTextFileSnapshot(path);
+			if (snapshot.source === undefined) continue;
+			const settings = JSON.parse(stripJsonNoise(snapshot.source));
+			if (!isObjectRecord(settings)) continue;
+			const current = settings.enabledModels;
+			if (!Array.isArray(current)) continue;
+			const patterns = current.filter((item): item is string => typeof item === "string");
+			// [喵喵喵]: 空 pattern 数组的语义与未配置一致（写路径同样视作 all-enabled）。
+			if (patterns.length === 0) return { configured: false, scope, patterns };
+			return { configured: true, scope, patterns };
+		} catch {
+			continue;
+		}
+	}
+	return { configured: false, scope: undefined, patterns: [] };
 }
 
 export async function enableModelForNextPiStart(

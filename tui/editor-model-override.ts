@@ -5,8 +5,10 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { t } from "../i18n.ts";
-import type { ModelOverrideDraft } from "../types.ts";
+import type { CompactionReserveChoice, ModelOverrideDraft } from "../types.ts";
+import { DEFAULT_COMPACTION_RESERVE_TOKENS, resolveAutoCompactionReserve, resolveCompactionReserveChoice } from "../compaction-settings.ts";
 import type { BuiltinChatModelBaseline } from "../state-document.ts";
+import { COMPACTION_RESERVE_PRESETS, cycleNumericPreset, parseNonNegativeTokenCount } from "./editor-model.ts";
 import { formatContextWindowShorthand } from "./ui-helpers.ts";
 import {
 	markAdjustableValue,
@@ -25,6 +27,7 @@ interface FieldRow {
 }
 
 const REASONING_ORDER: readonly boolean[] = [true, false];
+const COMPACT_RESERVE_STOPS: readonly CompactionReserveChoice[] = ["global", "auto", ...COMPACTION_RESERVE_PRESETS];
 
 function cycleReasoning(current: boolean, direction: HorizontalDirection): boolean {
 	const index = REASONING_ORDER.indexOf(current);
@@ -35,6 +38,26 @@ function cycleReasoning(current: boolean, direction: HorizontalDirection): boole
 function formatKeepBuiltin(value: number, pristine: number | undefined): string {
 	if (pristine !== undefined && value === pristine) return t("跟随内置");
 	return String(value);
+}
+
+function describeReserve(draft: ModelOverrideDraft): string {
+	const choice = draft.compactionReserve ?? "global";
+	if (choice === "global") {
+		return `${draft.compactionReserveGlobal ?? DEFAULT_COMPACTION_RESERVE_TOKENS} · ${t("全局")}`;
+	}
+	// auto 和固定值都可能算出同样的 token，标出档位才能区分。
+	if (choice === "auto") return `${resolveAutoCompactionReserve(draft.contextWindow)} · auto`;
+	return String(choice);
+}
+
+function describeReserveThreshold(draft: ModelOverrideDraft): string {
+	const reserve = resolveCompactionReserveChoice(draft.compactionReserve ?? "global", draft.contextWindow)
+		?? draft.compactionReserveGlobal ?? DEFAULT_COMPACTION_RESERVE_TOKENS;
+	return t("压缩阈值 {threshold} = 上下文 {context} − 预留 {reserve}", {
+		threshold: Math.max(0, draft.contextWindow - reserve),
+		context: draft.contextWindow,
+		reserve,
+	});
 }
 
 function buildRows(draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline): FieldRow[] {
@@ -51,6 +74,11 @@ function buildRows(draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline
 			adjustable: true,
 		},
 		{
+			id: "compactionReserve",
+			label: t("压缩预留"),
+			value: describeReserve(draft),
+		},
+		{
 			id: "modelName",
 			label: t("显示名"),
 			value: draft.modelName.trim()
@@ -61,9 +89,23 @@ function buildRows(draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline
 }
 
 function applyHorizontalToggle(draft: ModelOverrideDraft, fieldId: string, direction: HorizontalDirection): boolean {
-	if (fieldId !== "reasoning") return false;
-	draft.reasoning = cycleReasoning(draft.reasoning, direction);
-	return true;
+	if (fieldId === "reasoning") {
+		draft.reasoning = cycleReasoning(draft.reasoning, direction);
+		return true;
+	}
+	if (fieldId === "compactionReserve") {
+		const current = draft.compactionReserve ?? "global";
+		const index = COMPACT_RESERVE_STOPS.indexOf(current);
+		if (index >= 0) {
+			const offset = direction === "left" ? -1 : 1;
+			draft.compactionReserve = COMPACT_RESERVE_STOPS[(index + offset + COMPACT_RESERVE_STOPS.length) % COMPACT_RESERVE_STOPS.length]!;
+		} else {
+			// 手填值不在档位上：按数值吸附到相邻固定档位。
+			draft.compactionReserve = cycleNumericPreset(current as number, COMPACTION_RESERVE_PRESETS, direction);
+		}
+		return true;
+	}
+	return false;
 }
 
 async function editIntField(
@@ -134,6 +176,7 @@ export async function editModelOverride(
 						max: pristine.maxTokens !== undefined ? formatContextWindowShorthand(pristine.maxTokens) : t("未知"),
 					}),
 					t("显示名只影响 /model 列表文本；模型级覆盖无法覆盖 baseUrl。"),
+			describeReserveThreshold(draft),
 				],
 				onAdjust: (id, direction) => {
 					if (!applyHorizontalToggle(draft, id, direction)) return undefined;
@@ -161,6 +204,31 @@ export async function editModelOverride(
 		}
 		if (fieldId === "reasoning") {
 			await editReasoningField(ctx, draft, pristine);
+			continue;
+		}
+		if (fieldId === "compactionReserve") {
+			if (draft.compactionReserveWritable === false) {
+				ctx.ui.notify(t("Pi 的 settings.json 当前不可读写，本次跳过压缩预留编辑。"), "warning");
+				continue;
+			}
+			const current = resolveCompactionReserveChoice(draft.compactionReserve ?? "global", draft.contextWindow)
+				?? draft.compactionReserveGlobal ?? DEFAULT_COMPACTION_RESERVE_TOKENS;
+			const rawValue = await ctx.ui.input(t(
+				"压缩预留 token（支持 200k / 1m 写法；当前：{current}；留空跟随全局设置）",
+				{ current: String(current) },
+			), String(current));
+			if (rawValue === undefined) continue;
+			const reserveInput = rawValue.trim();
+			if (!reserveInput) {
+				draft.compactionReserve = "global";
+				continue;
+			}
+			const parsed = parseNonNegativeTokenCount(reserveInput);
+			if (parsed === undefined) {
+				ctx.ui.notify(t("压缩预留必须是非负整数"), "warning");
+				continue;
+			}
+			draft.compactionReserve = parsed;
 			continue;
 		}
 		if (fieldId === "modelName") {
