@@ -183,6 +183,10 @@ export interface ModelOverrideDraft {
 	contextWindow: number;
 	maxTokens: number;
 	reasoning: boolean;
+	/** scoped-model 显示状态：true = 已隐藏（启动重算后不在 /model 可见）。 */
+	scopedHidden?: boolean;
+	/** 进入编辑器时的显示状态，保存时用于 diff。 */
+	scopedHiddenInitial?: boolean;
 	/** 压缩预留档位（存取在 Pi settings.json，不占 modelOverrides）；"global" 表示不写覆盖。 */
 	compactionReserve?: CompactionReserveChoice;
 	/** 草稿构建时的压缩预留档位，用于保存时的 diff。 */

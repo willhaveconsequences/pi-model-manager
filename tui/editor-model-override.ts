@@ -6,6 +6,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { t } from "../i18n.ts";
 import type { CompactionReserveChoice, ModelOverrideDraft } from "../types.ts";
+import { describeVisibilityTag, readScopedHiddenSet } from "./scoped-model-visibility.ts";
 import { DEFAULT_COMPACTION_RESERVE_TOKENS, resolveAutoCompactionReserve, resolveCompactionReserveChoice } from "../compaction-settings.ts";
 import type { BuiltinChatModelBaseline } from "../state-document.ts";
 import { COMPACTION_RESERVE_PRESETS, cycleNumericPreset, parseNonNegativeTokenCount } from "./editor-model.ts";
@@ -65,6 +66,7 @@ function buildRows(draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline
 	const pristineMax = pristine.maxTokens !== undefined ? formatContextWindowShorthand(pristine.maxTokens) : t("未知");
 	return [
 		{ id: "modelId", label: t("模型 ID"), value: draft.modelId },
+		{ id: "scopedVisible", label: t("显示"), value: draft.scopedHidden ? `${t("隐藏")}（${t("已隐藏")}）` : t("显示"), adjustable: true },
 		{ id: "contextWindow", label: t("上下文窗口"), value: `${formatKeepBuiltin(draft.contextWindow, pristine.contextWindow)}（${t("内置")} ${pristineContext}）` },
 		{ id: "maxTokens", label: t("最大输出"), value: `${formatKeepBuiltin(draft.maxTokens, pristine.maxTokens)}（${t("内置")} ${pristineMax}）` },
 		{
@@ -90,6 +92,10 @@ function buildRows(draft: ModelOverrideDraft, pristine: BuiltinChatModelBaseline
 }
 
 function applyHorizontalToggle(draft: ModelOverrideDraft, fieldId: string, direction: HorizontalDirection): boolean {
+	if (fieldId === "scopedVisible") {
+		draft.scopedHidden = !draft.scopedHidden;
+		return true;
+	}
 	if (fieldId === "reasoning") {
 		draft.reasoning = cycleReasoning(draft.reasoning, direction);
 		return true;
@@ -171,6 +177,7 @@ export async function editModelOverride(
 			cursor,
 			{
 				getSummaryLines: () => [
+					t("「显示」控制模型是否进入 /model（写 scoped 可见性状态），与模型覆盖相互独立。"),
 					t("模型覆盖只写入与内置默认不同的字段；全部还原后该模型的覆盖会被移除。"),
 					t("内置默认：上下文 {context} / 最大输出 {max}", {
 						context: pristine.contextWindow !== undefined ? formatContextWindowShorthand(pristine.contextWindow) : t("未知"),
@@ -201,6 +208,14 @@ export async function editModelOverride(
 		}
 		if (fieldId === "maxTokens") {
 			await editIntField(ctx, draft, "maxTokens", pristine);
+			continue;
+		}
+		if (fieldId === "scopedVisible") {
+			const choice = await showOptionPicker(ctx, t("显示"), [
+				{ id: "show", label: t("显示 — 出现在 /model 与 Ctrl+P") },
+				{ id: "hide", label: t("隐藏 — 从模型列表屏蔽（保留模型定义）") },
+			], draft.scopedHidden ? "hide" : "show");
+			if (choice) draft.scopedHidden = choice.id === "hide";
 			continue;
 		}
 		if (fieldId === "reasoning") {

@@ -49,7 +49,7 @@ import { editModelOverride } from "./editor-model-override.ts";
 import { editProvider } from "./editor-provider.ts";
 import { showOptionPicker, showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
 import { runScreenFlow } from "./screen-host.ts";
-import { runModelVisibilityPanel, toggleScopedModelVisibility } from "./model-visibility-panel.ts";
+import { describeVisibilityTag, readScopedHiddenSet, toggleScopedModelVisibility } from "./scoped-model-visibility.ts";
 import {
 	formatModelListHeader,
 	formatModelListRow,
@@ -348,6 +348,16 @@ async function editNativeOverrideModel(
 		draft.compactionReserveWritable = false;
 	}
 	draft.compactionReserveInitial = draft.compactionReserve;
+	// [喵喵喵]: scoped 可见性同样 diff —— 编辑器内的「显示」行与 X 快捷键共用状态。
+	let scopedHiddenSet: Set<string>;
+	try {
+		scopedHiddenSet = await readScopedHiddenSet(ctx);
+	} catch {
+		scopedHiddenSet = new Set();
+	}
+	const scopedHiddenInitial = scopedHiddenSet.has(`${providerId}/${model.id}`.toLowerCase());
+	draft.scopedHidden = scopedHiddenInitial;
+	draft.scopedHiddenInitial = scopedHiddenInitial;
 	// [喵喵喵]: diff 为空 => 该模型的覆盖会被摘除；保存失败保留草稿继续编辑。
 	while (true) {
 		const outcome = await editModelOverride(ctx, draft, pristine, t("模型覆盖 {providerId}/{modelId}", { providerId, modelId: model.id }));
@@ -355,6 +365,17 @@ async function editNativeOverrideModel(
 		const patch = buildModelOverridePatch(outcome.draft, pristine);
 		if (!await saveNativeOverrideModelOverride(ctx, providerId, model.id, patch)) continue;
 		await persistNativeOverrideModelCompaction(ctx, draft);
+		if ((outcome.draft.scopedHidden ?? false) !== scopedHiddenInitial) {
+			try {
+				const hidden = await toggleScopedModelVisibility(ctx, providerId, model.id);
+				ctx.ui.notify(t("{fullId} 已设为{visibility}（重启 Pi 后生效）", {
+					fullId: getModelFullId(providerId, model.id),
+					visibility: hidden ? t("隐藏") : t("显示"),
+				}), "info");
+			} catch (error) {
+				ctx.ui.notify(formatUnknownError(error), "error");
+			}
+		}
 		return true;
 	}
 }
@@ -548,7 +569,7 @@ async function createBuiltinOverride(pi: ExtensionAPI, ctx: ExtensionCommandCont
 
 // ========== 子菜单 ==========
 
-type ProviderShortcut = "add-model" | "edit-provider" | "delete-model";
+type ProviderShortcut = "add-model" | "edit-provider" | "delete-model" | "toggle-visibility";
 
 // [喵喵喵]: 压缩预留保存在 Pi 的 settings.json，不在 models.json；
 // 打开模型编辑器时先读回已有覆盖，否则保存会把用户之前设的值当成“跟随全局”清掉。
@@ -622,7 +643,16 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 			ctx.ui.notify(t("接入配置已不存在：{providerId}", { providerId }), "warning");
 			return true;
 		}
-		const rows = buildProviderMenuRows(currentProvider);
+		let scopedHiddenSet: Set<string>;
+		try {
+			scopedHiddenSet = await readScopedHiddenSet(ctx);
+		} catch {
+			scopedHiddenSet = new Set();
+		}
+		const rows = buildProviderMenuRows(currentProvider).map((row) => ({
+			...row,
+			label: `${row.label}${describeVisibilityTag(scopedHiddenSet.has(`${providerId}/${row.modelId}`.toLowerCase())) ? ` · ${t("已隐藏")}` : ""}`,
+		}));
 		const modelColumns = getModelColumnWidths(currentProvider.models);
 		const action = await showPersistentShortcutMenu<ProviderShortcut>(
 			ctx,
@@ -634,6 +664,7 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 				{ input: "a", shortcut: "add-model" },
 				{ input: "e", shortcut: "edit-provider" },
 				{ input: "d", shortcut: "delete-model" },
+				{ input: "v", shortcut: "toggle-visibility" },
 			],
 			{
 				summaryLines: [
@@ -652,6 +683,7 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 					{ key: "A", label: t("添加模型") },
 					{ key: "E", label: t("编辑接入") },
 					{ key: "D", label: t("删除模型") },
+					{ key: "V", label: t("显示/隐藏") },
 					{ key: "Esc", label: t("返回") },
 				],
 				emptyLabel: t("暂无模型；按 a 添加第一个模型"),
@@ -689,6 +721,23 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 						if (outcome.draft.providerId !== providerId) return true;
 						break;
 					}
+				}
+				continue;
+			}
+			if (action.shortcut === "toggle-visibility") {
+				const selectedModelId = rows[cursor.index]?.modelId;
+				if (!selectedModelId) {
+					ctx.ui.notify(t("没有可切换的模型。"), "info");
+					continue;
+				}
+				try {
+					const hidden = await toggleScopedModelVisibility(ctx, providerId, selectedModelId);
+					ctx.ui.notify(t("{fullId} 已设为{visibility}（重启 Pi 后生效）", {
+						fullId: getModelFullId(providerId, selectedModelId),
+						visibility: hidden ? t("隐藏") : t("显示"),
+					}), "info");
+				} catch (error) {
+					ctx.ui.notify(formatUnknownError(error), "error");
 				}
 				continue;
 			}
@@ -748,7 +797,7 @@ async function createProviderAndModel(pi: ExtensionAPI, ctx: ExtensionCommandCon
 
 // ========== 入口 ==========
 
-type DashboardShortcut = "new-provider" | "edit-builtin" | "model-visibility" | "header-profiles" | "delete-provider" | "language";
+type DashboardShortcut = "new-provider" | "edit-builtin" | "header-profiles" | "delete-provider" | "language";
 
 export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
 	const cursor: MenuCursor = { index: 0 };
@@ -782,7 +831,6 @@ async function runDashboardLoop(
 			[
 				{ input: "n", shortcut: "new-provider" },
 				{ input: "b", shortcut: "edit-builtin" },
-				{ input: "g", shortcut: "model-visibility" },
 				{ input: "h", shortcut: "header-profiles" },
 				{ input: "d", shortcut: "delete-provider" },
 				{ input: "l", shortcut: "language" },
@@ -814,7 +862,6 @@ async function runDashboardLoop(
 					{ key: "Enter", label: t("进入") },
 					{ key: "N", label: t("新建接入") },
 					{ key: "B", label: t("内置接入") },
-					{ key: "G", label: t("可见性") },
 					{ key: "D", label: t("删除接入") },
 					{ key: "H", label: t("请求头管理") },
 					{ key: "L", label: "语言 / Language" },
@@ -827,7 +874,6 @@ async function runDashboardLoop(
 		if (action.type === "shortcut") {
 			if (action.shortcut === "new-provider") await createProviderAndModel(pi, ctx);
 			if (action.shortcut === "edit-builtin") await createBuiltinOverride(pi, ctx);
-			if (action.shortcut === "model-visibility") await runModelVisibilityPanel(pi, ctx);
 			if (action.shortcut === "header-profiles") await runHeaderProfilesPanel(pi, ctx);
 			if (action.shortcut === "language") await selectUiLanguage(ctx);
 			if (action.shortcut === "delete-provider") {
