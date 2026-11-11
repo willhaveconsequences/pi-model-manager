@@ -139,20 +139,20 @@ async function saveProviderDraft(
 	draft: ReturnType<typeof createProviderDraft>,
 	oldProviderId: string | undefined,
 ): Promise<boolean> {
-	const state = await readState();
-	const builtInIds = await getBuiltinProviderIds();
-	// 内置覆写没有“Base URL 必填/重命名检查”语义，使用独立校验。
-	const errors = draft.nativeOverride
-		? validateNativeOverrideDraft(draft)
-		: validateProviderDraft(draft, state, builtInIds, oldProviderId);
-	if (errors.length > 0) {
-		notifyValidationErrors(ctx, t("接入配置无效"), errors);
-		return false;
-	}
-	const current = oldProviderId ? state.providers[oldProviderId] : state.providers[draft.providerId];
-	if (!(await confirmWarnings(ctx, getProviderChangeWarnings(current, draft)))) return false;
-
 	try {
+		const state = await readState();
+		const builtInIds = await getBuiltinProviderIds();
+		// 内置覆写没有“Base URL 必填/重命名检查”语义，使用独立校验。
+		const errors = draft.nativeOverride
+			? validateNativeOverrideDraft(draft)
+			: validateProviderDraft(draft, state, builtInIds, oldProviderId);
+		if (errors.length > 0) {
+			notifyValidationErrors(ctx, t("接入配置无效"), errors);
+			return false;
+		}
+		const current = oldProviderId ? state.providers[oldProviderId] : state.providers[draft.providerId];
+		if (!(await confirmWarnings(ctx, getProviderChangeWarnings(current, draft)))) return false;
+
 		await saveProviderConfiguration(pi, ctx, state, draft, oldProviderId);
 		return true;
 	} catch (error) {
@@ -167,13 +167,13 @@ async function saveModelDraft(
 	draft: ReturnType<typeof createModelDraftForStoredProvider>,
 	replacedModelId: string | undefined,
 ): Promise<boolean> {
-	const state = await readState();
-	const errors = validateModelDraft(draft, state, replacedModelId);
-	if (errors.length > 0) {
-		notifyValidationErrors(ctx, t("模型配置无效"), errors);
-		return false;
-	}
 	try {
+		const state = await readState();
+		const errors = validateModelDraft(draft, state, replacedModelId);
+		if (errors.length > 0) {
+			notifyValidationErrors(ctx, t("模型配置无效"), errors);
+			return false;
+		}
 		await saveModelConfiguration(pi, ctx, state, draft, replacedModelId);
 		return true;
 	} catch (error) {
@@ -188,20 +188,20 @@ async function saveNewProviderAndModelDraft(
 	providerDraft: ReturnType<typeof createProviderDraft>,
 	modelDraft: ReturnType<typeof createModelDraftForStoredProvider>,
 ): Promise<boolean> {
-	const state = await readState();
-	const builtInIds = await getBuiltinProviderIds();
-	const providerErrors = validateProviderDraft(providerDraft, state, builtInIds, undefined);
-	if (providerErrors.length > 0) {
-		notifyValidationErrors(ctx, t("接入配置无效"), providerErrors);
-		return false;
-	}
-	const providerState = upsertProviderInDocument(state, undefined, providerDraft);
-	const modelErrors = validateModelDraft(modelDraft, providerState, undefined);
-	if (modelErrors.length > 0) {
-		notifyValidationErrors(ctx, t("模型配置无效"), modelErrors);
-		return false;
-	}
 	try {
+		const state = await readState();
+		const builtInIds = await getBuiltinProviderIds();
+		const providerErrors = validateProviderDraft(providerDraft, state, builtInIds, undefined);
+		if (providerErrors.length > 0) {
+			notifyValidationErrors(ctx, t("接入配置无效"), providerErrors);
+			return false;
+		}
+		const providerState = upsertProviderInDocument(state, undefined, providerDraft);
+		const modelErrors = validateModelDraft(modelDraft, providerState, undefined);
+		if (modelErrors.length > 0) {
+			notifyValidationErrors(ctx, t("模型配置无效"), modelErrors);
+			return false;
+		}
 		await saveNewProviderWithModelConfiguration(pi, ctx, providerState, providerDraft, modelDraft);
 		return true;
 	} catch (error) {

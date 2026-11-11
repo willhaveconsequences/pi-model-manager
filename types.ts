@@ -143,6 +143,7 @@ export interface ProviderDraft {
 export interface ModelDraft {
 	providerId: string;
 	providerName: string;
+	providerManaged: boolean;
 	api: ApiKind;
 	baseUrl: string;
 	apiKey: string;

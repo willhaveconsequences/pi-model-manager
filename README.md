@@ -2,13 +2,13 @@
 
 [English](./README.en.md) · 简体中文
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.85.1-6f42c1)](https://github.com/earendil-works/pi)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.87.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 [![npm](https://img.shields.io/npm/v/pi-model-manager?color=2f81f7)](https://www.npmjs.com/package/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> 本扩展要求 Pi `>=0.85.1`。
+> 本扩展要求 Pi `>=0.87.0`，Node.js `22.x >=22.21.0` 或 `>=24.5.0`。Windows 配置锁需要 PowerShell 7（`pwsh`）。接入代理不支持 Bun。
 
 ## 界面预览
 
@@ -213,6 +213,8 @@ Base URL 表示 API 根地址：OpenAI 两种协议和 Anthropic 只填域名时
 
 Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需形式，因此未加载扩展时也能使用；自定义版本路径通过 `state.json` 私有标记衔接，依赖扩展的发送适配。代理开关只改变传输路线，最终端点、业务请求头和 payload 保持一致；代理失败会报错。
 
+代理出站使用 Node 原生 Agent，同一接入、代理地址和上游协议下的请求可复用连接。修改代理地址后新请求使用新池；旧池无在途请求并空闲 30 秒后回收。临时路由清理不会中断 SSE；会话关闭会中止在途转发并释放连接池。切换代理软件内的节点是否中断旧连接由该软件控制，插件不监听节点选择。
+
 ### Chat 协议兼容
 
 当 API 协议为 `openai-completions`（OpenAI Chat）时，接入编辑器会显示「协议兼容」。用 `←` / `→` 切换，或按 `Enter` 查看完整说明；该设置作用于接入内的所有模型。
@@ -237,7 +239,7 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 
 #### Responses 速度档位
 
-当 API 协议为 `openai-responses` 时，模型编辑器会显示 **Fast mode**。用 `←` / `→` 循环切换三档，或按 `Enter` 查看完整说明；模型列表也会显示所选档位。英文界面对应 Standard / Fast / Ultrafast。
+当接入已由插件接管且 API 协议为 `openai-responses` 时，模型编辑器会显示 **Fast mode**。未接管时隐藏该项并提示先保存接入配置。用 `←` / `→` 循环切换三档，或按 `Enter` 查看完整说明；模型列表也会显示所选档位。英文界面对应 Standard / Fast / Ultrafast。
 
 | 档位 | 请求行为 |
 | --- | --- |
@@ -256,19 +258,18 @@ Fast 和 Ultrafast 需要上游、账号及模型支持，可能产生额外费�
 | 自动推荐 | Anthropic Messages 使用 Claude Code；OpenAI Completions/Responses 使用 Codex；其他协议不附加身份头 |
 | 不添加 | 不添加扩展管理的客户端身份请求头 |
 | Claude Code | 使用内置 Claude Code 兼容请求头，并为 Anthropic 请求补充必要的兼容 metadata |
-| Codex | 使用内置 Codex TUI 兼容请求头 |
+| Codex | 使用内置 Codex Rust CLI 兼容请求头 |
 | 自定义 | 使用在请求头面板中创建的可复用 JSON 请求头集合 |
 
-当前内置值来自真实客户端请求并已移除认证信息：
-
-- Claude Code `2.1.312`
-- Codex TUI `0.165.0`
+内置画像位于 `presets/builtin-client-headers.ts`，不包含认证信息；本机抓包缓存存在时优先使用缓存。Codex 使用 `codex_cli_rs` 画像，字段以 [codex-proxy-rs](https://github.com/zyycn/codex-proxy-rs) 为参考。
 
 这些值只用于兼容需要识别客户端身份的 API 中转，不代替 API key。公开仓库和 npm 包**不包含请求捕获工具、用户抓包、认证头或本机状态**。如果内置值不适合你的服务，请关闭身份头或创建自定义请求头。
 
 自定义请求头会拒绝认证类敏感字段；认证信息应放在接入的 API key 配置中。
 
 显式原生请求头覆盖内置模板；选择自定义请求头时，自定义值拥有最终优先级。同名字段按大小写不敏感方式合并。自定义 `anthropic-beta` 清单完整保留，Adaptive Thinking 不会修改它。
+
+生成头来源快照与实际写入的模型同步；只保存其他模型不会更新未改写模型的快照。缺少来源记录时，只记录与当前画像同值的字段，无法确认来源的旧值作为原生覆盖保留，不按历史值或头名自动清理。因此「不添加」不会删除这类旧覆盖，如需移除须核对后手动编辑 `models.json`。
 
 ## 配置文件
 
@@ -282,6 +283,8 @@ Fast 和 Ultrafast 需要上游、账号及模型支持，可能产生额外费�
 Pi 内置 Provider 不做整盘接管：模型清单、认证与 `/login` 流程继续由 Pi 内置目录管理。扩展提供“内置接入覆写”：在编辑器里只覆盖显示名称、Base URL、API key 与认证头，保存时在 `models.json` 写入一个不含 `models` 的局部节点，由 Pi 自行叠加在内置目录之上；覆写所有权记录为节点内的 `piModelManager.nativeOverride` 标记，取消覆写时插件只剥离自己写入的字段，不动节点里的其它内容。覆写接入不注册动态 Provider，也不参与请求头/代理/Responses 兼容等发送层特性。
 
 插件自身的配置写入由跨进程锁串行化，`enabledModels` 还同时遵守 Pi 的 `proper-lockfile` 锁；`models.json` 与 `state.json` 通过事务意图文件在中断后恢复，读取方不会采用事务进行中的半完成组合。外部编辑器不受这些锁约束，因此保存前仍会校验内容签名；检测到外部修改时会取消保存而不是覆盖。
+
+配置锁记录 PID 和系统进程创建时间，以识别 PID 复用；不会按持锁时长强行回收。查询失败时不抢占可能活跃的锁，自身身份无法确认时拒绝持锁写入。Windows 使用 `pwsh`，Linux 使用 `/proc`，macOS 使用 `/bin/ps`；当前进程的身份在进程内缓存。
 
 旧端点配置会升级到 v5 元数据，保持原最终聊天地址，迁移前的双文件快照保存在插件配置目录的 `base-url-v5-*.json`。快照包含原始配置，应按凭据文件保护；回退时需配套恢复代码、`models.json` 和 `state.json`。
 
@@ -308,10 +311,12 @@ ${ANTHROPIC_API_KEY}
 
 | 组件 | 要求 |
 | --- | --- |
-| `@earendil-works/pi-coding-agent` | `>=0.85.1` |
+| `@earendil-works/pi-coding-agent` | `>=0.87.0` |
 | `@earendil-works/pi-ai` | `>=0.85.1` |
 | `@earendil-works/pi-tui` | `>=0.75.0` |
 | 运行模式 | `/model-manager` 需要 Pi TUI |
+
+Pi `0.87.0` 是 `agent_before_settle` 的 API 下限，不代表已逐版本验证兼容性；当前真实宿主检查基线为 Pi `1.5.2`，更早版本未逐一验证。
 
 默认 TUI 文案为简体中文；可在主面板按 `L` 切换为 English。
 
@@ -326,7 +331,7 @@ pi -e .
 
 扩展由 Pi 直接加载 TypeScript 入口，不需要单独构建步骤。开发时请勿提交 `state.json`、`bootstrap-meta.json`、`node_modules` 或任何请求捕获数据。
 
-测试分为替身测试和真实宿主测试，当前真实宿主验证基线为 Pi `1.4.0`：
+测试分为替身测试和真实宿主测试，当前真实宿主验证基线为 Pi `1.5.2`：
 
 ```bash
 npm test
@@ -335,7 +340,7 @@ PI_TEST_RUNTIME_ROOT="/path/to/node_modules/@earendil-works/pi-coding-agent" npm
 
 `npm test` 使用测试替身，并跳过真实宿主用例；`test:runtime` 只运行 `tests/*-wire.test.ts`，包括完整内置接入目录保护与协议转发检查。`PI_TEST_RUNTIME_ROOT` 指向已安装的 Pi 包目录，Windows Git Bash 下使用 `C:/...` 形式。这些测试使用本地响应与虚拟凭据，不调用外部模型服务。
 
-宿主提供的包在 `peerDependencies` 中声明为 `"*"`，实际支持版本见上方兼容性表；运行时仍复用 Pi 提供的模块。
+宿主提供的包在 `peerDependencies` 中声明最低要求，与上方兼容性表一致；运行时仍复用 Pi 提供的模块。
 
 验证公开包内容：
 
