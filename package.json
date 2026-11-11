@@ -1,6 +1,6 @@
 {
   "name": "pi-model-manager",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A TUI model and provider manager for Pi with native models.json persistence, request-header profiles, proxy routing, and protocol compatibility.",
   "type": "module",
   "engines": {
@@ -66,11 +66,11 @@
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Qihuanxishini/pi-model-manager.git"
+    "url": "git+https://github.com/willhaveconsequences/pi-model-manager.git"
   },
-  "homepage": "https://github.com/Qihuanxishini/pi-model-manager#readme",
+  "homepage": "https://github.com/willhaveconsequences/pi-model-manager#readme",
   "bugs": {
-    "url": "https://github.com/Qihuanxishini/pi-model-manager/issues"
+    "url": "https://github.com/willhaveconsequences/pi-model-manager/issues"
   },
   "pi": {
     "extensions": [
@@ -78,9 +78,20 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.85.1",
-    "@earendil-works/pi-coding-agent": ">=0.87.0",
-    "@earendil-works/pi-tui": ">=0.75.0"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
   },
   "dependencies": {
     "minimatch": "^10.2.6",

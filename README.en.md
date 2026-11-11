@@ -141,30 +141,28 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 
 ## Installation
 
-### Install from GitHub (recommended for now)
+### Install from GitHub
 
 ```bash
-pi install git:github.com/Qihuanxishini/pi-model-manager
+pi install git:github.com/willhaveconsequences/pi-model-manager
+```
+
+Pin a specific release (recommended for production use):
+
+```bash
+pi install git:github.com/willhaveconsequences/pi-model-manager@v0.5.1
 ```
 
 Try it for the current run without adding it to Pi's package settings:
 
 ```bash
-pi -e git:github.com/Qihuanxishini/pi-model-manager
+pi -e git:github.com/willhaveconsequences/pi-model-manager
 ```
 
 Update Git-installed extensions with:
 
 ```bash
 pi update --extensions
-```
-
-### Install from npm
-
-`pi-model-manager` is published as a public npm package:
-
-```bash
-pi install npm:pi-model-manager
 ```
 
 ## Quick start
@@ -319,7 +317,7 @@ The TUI copy defaults to Simplified Chinese; press `L` on the dashboard to switc
 ## Local development
 
 ```bash
-git clone https://github.com/Qihuanxishini/pi-model-manager.git
+git clone https://github.com/willhaveconsequences/pi-model-manager.git
 cd pi-model-manager
 npm install
 pi -e .
@@ -346,7 +344,7 @@ npm pack --dry-run
 
 ## Reporting issues
 
-Open a reproducible report in [GitHub Issues](https://github.com/Qihuanxishini/pi-model-manager/issues). Remove API keys, authentication headers, proxy credentials, and private endpoints before sharing configuration or logs.
+Open a reproducible report in [GitHub Issues](https://github.com/willhaveconsequences/pi-model-manager/issues). Remove API keys, authentication headers, proxy credentials, and private endpoints before sharing configuration or logs.
 
 ## Friendly links
 

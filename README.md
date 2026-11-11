@@ -141,30 +141,28 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 
 ## 安装
 
-### 从 GitHub 安装（当前推荐）
+### 从 GitHub 安装
 
 ```bash
-pi install git:github.com/Qihuanxishini/pi-model-manager
+pi install git:github.com/willhaveconsequences/pi-model-manager
+```
+
+固定到某个发布版本（推荐用于生产环境）：
+
+```bash
+pi install git:github.com/willhaveconsequences/pi-model-manager@v0.5.1
 ```
 
 也可以先临时试用，不写入 Pi 的包配置：
 
 ```bash
-pi -e git:github.com/Qihuanxishini/pi-model-manager
+pi -e git:github.com/willhaveconsequences/pi-model-manager
 ```
 
 更新 Git 安装的扩展：
 
 ```bash
 pi update --extensions
-```
-
-### 从 npm 安装
-
-`pi-model-manager` 已发布为公开 npm 包：
-
-```bash
-pi install npm:pi-model-manager
 ```
 
 ## 快速开始
@@ -323,7 +321,7 @@ Pi `0.87.0` 是 `agent_before_settle` 的 API 下限，不代表已逐版本验�
 ## 本地开发
 
 ```bash
-git clone https://github.com/Qihuanxishini/pi-model-manager.git
+git clone https://github.com/willhaveconsequences/pi-model-manager.git
 cd pi-model-manager
 npm install
 pi -e .
@@ -350,7 +348,7 @@ npm pack --dry-run
 
 ## 问题反馈
 
-请通过 [GitHub Issues](https://github.com/Qihuanxishini/pi-model-manager/issues) 提交可复现的问题。报告配置问题时，请删除 API key、认证头、代理凭据和私有 endpoint。
+请通过 [GitHub Issues](https://github.com/willhaveconsequences/pi-model-manager/issues) 提交可复现的问题。报告配置问题时，请删除 API key、认证头、代理凭据和私有 endpoint。
 
 ## 友情链接
 
